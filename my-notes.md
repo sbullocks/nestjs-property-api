@@ -130,3 +130,84 @@ Both are structured pipelines where each layer has one job. RTK Query manages se
 3. Define the service — the actual logic each route calls
 
 In practice I think about it in reverse: what data do I need? → write the service method → wire the controller to call it → register both in the module.
+
+---
+
+## nest generate resource — What It Creates
+
+`nest generate resource properties` is similar to `nest new` — it creates a whole directory and structures it with files automatically. I just name it and NestJS scaffolds everything.
+
+Files it creates:
+- `properties.controller.ts` — predefined routes already configured, each referencing `this.propertiesService.x()`
+- `properties.service.ts` — predefined methods: `create`, `findAll`, `findOne`, `update`, `remove`
+- `properties.module.ts` — registers the controller and service for this scope
+- `properties.controller.spec.ts` — Jest test file for the controller
+- `properties.service.spec.ts` — Jest test file for the service
+- `dto/create-property.dto.ts` — defines the shape of incoming data for create
+- `dto/update-property.dto.ts` — extends CreatePropertyDto via PartialType
+- `entities/property.entity.ts` — placeholder for the database row shape
+
+The `:dev` server picks up the new files automatically and reinitializes with the new routes included — I can see them appear in the terminal output.
+
+**Important:** always run `nest generate` commands from inside `app/` — not the curriculum root. Running it from the wrong directory generates files in the wrong place.
+
+---
+
+## AppModule imports Array — Why PropertiesModule Goes There
+
+`AppModule` owns `AppController` and `AppService` in its `controllers` and `providers` arrays. The `imports` array is for modules that live outside of it — self-contained modules with their own controllers and services.
+
+`PropertiesModule` is its own `@Module` with its own controller and service. To make it part of the app, it has to be in `AppModule.imports[]`. If it's not there, NestJS doesn't know it exists and the routes won't register.
+
+So the pattern is: `controllers` and `providers` = things this module owns directly. `imports` = other modules being brought in from outside.
+
+---
+
+## AppController and AppService = The Home Route
+
+`AppController` and `AppService` handle `/` — the root.
+
+`PropertiesController` handles `/properties`. As more resources get added, each gets its own controller and prefix:
+
+```
+AppController        → /
+PropertiesController → /properties
+TenantsController    → /tenants
+```
+
+`AppController` is typically just a health check in production — a `GET /health` endpoint so infrastructure can ping it to confirm the app is alive.
+
+---
+
+## @Controller('properties') — The Route Prefix
+
+The string passed to `@Controller()` defines the prefix for every route inside that controller. So `@Get()` becomes `GET /properties`, `@Get(':id')` becomes `GET /properties/:id`. NestJS uses it to know which controller owns which URL path.
+
+---
+
+## DTOs — Shape of Incoming Data
+
+A DTO defines what shape of data is allowed into an operation. Right now they're empty because the fields haven't been defined yet. Once I add fields like `name`, `address`, `city`, `state` — NestJS validates that incoming request bodies match that shape before they ever reach the service.
+
+`UpdatePropertyDto` extends `CreatePropertyDto` via `PartialType` — instead of defining the same fields twice, Update just references Create and makes every field optional. This makes sense because on an update I might only send the fields I'm changing, not all of them.
+
+---
+
+## entities/property.entity.ts — Placeholder
+
+An empty class right now. It's meant to represent a database row as a TypeScript class. Once Prisma is wired in, the actual type comes from `@prisma/client` — so this file won't really be used directly.
+
+---
+
+## Route Order Matters
+
+NestJS reads routes top to bottom. If a dynamic route like `:id` is defined before a specific route like `example`, a request to `/properties/example` will match `:id` first and treat `"example"` as the id value — it never reaches the specific route.
+
+Fix: always define specific routes before dynamic ones:
+
+```ts
+@Get('example')   // specific — first
+@Get(':id')       // dynamic — after
+```
+
+The rule: specific routes before `:param` routes. Always.
