@@ -8,14 +8,15 @@ The goal at the end: a running NestJS API with Prisma + PostgreSQL, API key auth
 
 ## Step 1: Scaffold the project
 
-> Run these commands from your Desktop — NOT from inside the curriculum notes folder.
+> Run these commands from inside the curriculum repo. The app lives at `app/` alongside the notes.
 
 ```bash
-cd ~/Desktop
-nest new property-api
-cd property-api
-npm run start:dev
+cd ~/Desktop/nestjs-property-api
+nest new app
+npm run start:dev --prefix app
 ```
+
+> When `nest new` asks for a package manager, choose npm.
 
 Visit `http://localhost:3000` — you should see "Hello World!".
 
