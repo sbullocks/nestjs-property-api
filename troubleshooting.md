@@ -4,19 +4,36 @@ Known errors and fixes for this stack.
 
 ---
 
-## Prisma v7 incompatibility with NestJS
+## Prisma version compatibility with NestJS + Node 24
 
-**Symptom:**
+**Symptom (v7 / recent v6):**
 ```
 ReferenceError: exports is not defined in ES module scope
 ```
 
-**Cause:** `npx prisma init` installs Prisma v7 by default. Prisma v7 generates a client using `import.meta.url` (ESM-only syntax). NestJS compiles to CommonJS. They are incompatible.
-
-**Fix:**
-```bash
-npm install prisma@5 @prisma/client@5
+**Symptom (v5 on Node 24):**
 ```
+Error: (0, CSe.isError) is not a function
+```
+
+**Cause:**
+- `npx prisma init` installs the latest version by default (v7 or recent v6)
+- Newer Prisma versions generate a client using `provider = "prisma-client"` with a custom output path — this produces ESM-incompatible code with NestJS's CommonJS compilation
+- Prisma v5 CLI crashes on Node 24
+
+**Fix — install Prisma v6 and force CJS generator:**
+```bash
+npm install prisma@"^6.0.0" @prisma/client@"^6.0.0"
+```
+
+Then in `prisma/schema.prisma`, ensure the generator uses the CJS provider and no custom output:
+```prisma
+generator client {
+  provider = "prisma-client-js"
+}
+```
+
+Delete `prisma.config.ts` if it was generated — DATABASE_URL belongs in `schema.prisma`'s datasource block, not in a separate config file.
 
 Delete any v7-generated files: `generated/`, `prisma.config.ts`. Delete `prisma/migrations` if it exists. Rewrite `schema.prisma` cleanly.
 

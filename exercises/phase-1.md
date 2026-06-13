@@ -74,7 +74,7 @@ Verify in TablePlus:
 ## Step 4: Install and init Prisma
 
 ```bash
-npm install prisma@5 @prisma/client@5
+npm install prisma@6 @prisma/client@6
 npx prisma init
 ```
 

@@ -123,6 +123,62 @@ Both are structured pipelines where each layer has one job. RTK Query manages se
 
 ---
 
+## Setting Up Postgres
+
+Two commands to know:
+
+- `pg_ctl -D /opt/homebrew/var/postgresql@16 start` — starts the Postgres database server so it's listening for connections. If Postgres is already running as a background service (brew services), this isn't needed.
+- `createdb hpos_test_db` — creates a new empty database with that name
+
+TablePlus is a visual tool to see the database — like Snowflake but for local Postgres. Connect using: Host `127.0.0.1`, Port `5432`, User = Mac username, Password blank, Database = the db name. Before connecting, the Postgres role (user) has to exist — create it with:
+```bash
+psql postgres -c "CREATE ROLE your_username WITH SUPERUSER LOGIN;"
+```
+
+---
+
+## What Prisma Is
+
+Prisma lets me interact with the database using TypeScript instead of writing raw SQL. Instead of a massive SQL block to query a table, I write `prisma.property.findMany()` and Prisma generates and runs the SQL for me.
+
+Two packages:
+- `prisma` — the CLI dev tool. Manages the schema, runs migrations, generates the client. Not shipped to production.
+- `@prisma/client` — the runtime client my app actually imports and uses. This goes to production.
+
+Install with explicit v6 (v5 crashes on Node 24, v7 breaks NestJS):
+```bash
+npm install prisma@"^6.0.0" @prisma/client@"^6.0.0"
+```
+
+---
+
+## What prisma init Creates
+
+Two things:
+- `prisma/schema.prisma` — where I define my data models (tables) and my database connection. This is the source of truth for the database structure.
+- `.env` — where `DATABASE_URL` lives. Never commit this. Always check `.gitignore` has `.env` in it.
+
+`DATABASE_URL` is the connection string that tells Prisma where my database is, what user to connect as, and which database to use:
+```
+postgresql://my_mac_username@localhost:5432/hpos_test_db
+```
+
+---
+
+## Prisma Generator — Must Use prisma-client-js
+
+When `prisma init` runs, it might generate the schema with `provider = "prisma-client"` and a custom output path. This breaks NestJS because it generates an ESM-incompatible client. Always fix it to:
+
+```prisma
+generator client {
+  provider = "prisma-client-js"
+}
+```
+
+Also delete `prisma.config.ts` if it gets generated — DATABASE_URL belongs in `schema.prisma`'s datasource block, not in a separate file.
+
+---
+
 ## Build Order That Makes Sense
 
 1. Define the module — declare what controllers and services exist in this scope
