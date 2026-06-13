@@ -38,7 +38,7 @@ app.useGlobalInterceptors(new LoggingInterceptor())
   imports: [OtherModule],
   controllers: [MyController],
   providers: [MyService],
-  exports: [MyService],       // expose to other modules
+  exports: [MyService], // expose to other modules
 })
 export class MyModule {}
 ```
@@ -59,15 +59,20 @@ export class MyService {
 ## PrismaService
 
 ```ts
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common'
+import { PrismaClient } from '@prisma/client'
 
 @Injectable()
-export class PrismaService extends PrismaClient
+export class PrismaService
+  extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-  async onModuleInit() { await this.$connect(); }
-  async onModuleDestroy() { await this.$disconnect(); }
+  async onModuleInit() {
+    await this.$connect()
+  }
+  async onModuleDestroy() {
+    await this.$disconnect()
+  }
 }
 ```
 
@@ -92,10 +97,10 @@ export class PrismaModule {}
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest();
-    const apiKey = request.headers['x-api-key'];
-    if (apiKey === process.env.API_KEY) return true;
-    throw new UnauthorizedException();
+    const request = context.switchToHttp().getRequest()
+    const apiKey = request.headers['x-api-key']
+    if (apiKey === process.env.API_KEY) return true
+    throw new UnauthorizedException()
   }
 }
 ```
@@ -108,12 +113,14 @@ export class ApiKeyGuard implements CanActivate {
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const { method, url } = context.switchToHttp().getRequest();
-    const start = Date.now();
-    console.log(`[${method}] ${url} — incoming`);
-    return next.handle().pipe(
-      tap(() => console.log(`[${method}] ${url} — ${Date.now() - start}ms`)),
-    );
+    const { method, url } = context.switchToHttp().getRequest()
+    const start = Date.now()
+    console.log(`[${method}] ${url} — incoming`)
+    return next
+      .handle()
+      .pipe(
+        tap(() => console.log(`[${method}] ${url} — ${Date.now() - start}ms`)),
+      )
   }
 }
 ```
@@ -206,8 +213,8 @@ npx prisma generate
 ```bash
 pg_ctl -D /opt/homebrew/var/postgresql@16 start
 pg_ctl -D /opt/homebrew/var/postgresql@16 stop
-createdb hpos_dev
-psql hpos_dev
+createdb hpos_test_db
+psql hpos_test_db
 ```
 
 ```sql

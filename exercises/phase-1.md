@@ -21,6 +21,7 @@ npm run start:dev --prefix app
 Visit `http://localhost:3000` — you should see "Hello World!".
 
 Read these four files before moving on:
+
 - `src/main.ts`
 - `src/app.module.ts`
 - `src/app.controller.ts`
@@ -29,6 +30,7 @@ Read these four files before moving on:
 **Understand:** What is `AppModule` doing? What is `NestFactory.create()` doing? Where is the "Hello World!" string coming from?
 
 **Commit:**
+
 ```bash
 git add .
 git commit -m "feat: scaffold NestJS project"
@@ -48,6 +50,7 @@ Start the app and confirm the routes are registered — you'll see them in the t
 **Understand:** What files were generated? What was added to `app.module.ts`? What is a DTO?
 
 **Commit:**
+
 ```bash
 git add .
 git commit -m "feat: generate properties resource"
@@ -59,11 +62,12 @@ git commit -m "feat: generate properties resource"
 
 ```bash
 pg_ctl -D /opt/homebrew/var/postgresql@16 start
-createdb hpos_dev
+createdb hpos_test_db
 ```
 
 Verify in TablePlus:
-- Host: `127.0.0.1` | Port: `5432` | User: your Mac username | Password: blank | Database: `hpos_dev`
+
+- Host: `127.0.0.1` | Port: `5432` | User: your Mac username | Password: blank | Database: `hpos_test_db`
 
 ---
 
@@ -75,8 +79,9 @@ npx prisma init
 ```
 
 Update `.env`:
+
 ```
-DATABASE_URL="postgresql://YOUR_MAC_USERNAME@localhost:5432/hpos_dev"
+DATABASE_URL="postgresql://YOUR_MAC_USERNAME@localhost:5432/hpos_test_db"
 ```
 
 **Understand:** What two files did `prisma init` create? What does `DATABASE_URL` connect to?
@@ -100,6 +105,7 @@ model Property {
 ```
 
 Run the migration:
+
 ```bash
 npx prisma migrate dev --name init
 ```
@@ -107,6 +113,7 @@ npx prisma migrate dev --name init
 Verify in TablePlus — you should see a `Property` table.
 
 **Commit:**
+
 ```bash
 git add .
 git commit -m "feat: add Property model and initial migration"
@@ -117,6 +124,7 @@ git commit -m "feat: add Property model and initial migration"
 ## Step 6: Wire Prisma into NestJS
 
 Generate the service and module:
+
 ```bash
 nest generate service prisma
 nest generate module prisma
@@ -131,6 +139,7 @@ Add `PrismaModule` to `AppModule.imports[]`. Do NOT add PrismaService to `AppMod
 **Understand:** Why extend PrismaClient instead of instantiating it? Why @Global()?
 
 **Commit:**
+
 ```bash
 git add .
 git commit -m "feat: add PrismaService and PrismaModule"
@@ -143,6 +152,7 @@ git commit -m "feat: add PrismaService and PrismaModule"
 Inject `PrismaService` via the constructor in `src/properties/properties.service.ts`.
 
 Implement `findAll` to return all properties from the database:
+
 ```ts
 async findAll(): Promise<Property[]> {
   return this.prisma.property.findMany();
@@ -152,12 +162,14 @@ async findAll(): Promise<Property[]> {
 Import `Property` from `@prisma/client`.
 
 Start the app and test:
+
 ```bash
 curl http://localhost:3000/properties
 # Expected: []
 ```
 
 **Commit:**
+
 ```bash
 git add .
 git commit -m "feat: wire PrismaService into PropertiesService"
@@ -172,6 +184,7 @@ Create `src/common/guards/api-key.guard.ts`. Implement `CanActivate`. Read `x-ap
 Apply `@UseGuards(ApiKeyGuard)` above the `@Controller` decorator in `properties.controller.ts`. Pass the class — not `new ApiKeyGuard()`.
 
 Test:
+
 ```bash
 # Should return 401
 curl http://localhost:3000/properties
@@ -181,6 +194,7 @@ curl -H "x-api-key: secret" http://localhost:3000/properties
 ```
 
 **Commit:**
+
 ```bash
 git add .
 git commit -m "feat: add ApiKeyGuard to properties controller"
@@ -195,12 +209,14 @@ Create `src/common/interceptors/logging.interceptor.ts`. Implement `NestIntercep
 Apply globally in `main.ts` with `app.useGlobalInterceptors(new LoggingInterceptor())`.
 
 Test — hit any endpoint and watch the terminal:
+
 ```
 [GET] /properties — incoming
 [GET] /properties — 4ms
 ```
 
 **Commit:**
+
 ```bash
 git add .
 git commit -m "feat: add LoggingInterceptor globally"
@@ -213,11 +229,13 @@ git commit -m "feat: add LoggingInterceptor globally"
 Update `prisma/schema.prisma` — add Tenant model and `tenantId` to Property. See Module 4 for the full schema.
 
 Run the migration:
+
 ```bash
 npx prisma migrate dev --name add-tenant
 ```
 
 Update `PropertiesService.findAll` to accept and filter by `tenantId`:
+
 ```ts
 async findAll(tenantId: number): Promise<Property[]> {
   return this.prisma.property.findMany({
@@ -227,6 +245,7 @@ async findAll(tenantId: number): Promise<Property[]> {
 ```
 
 Update the controller to pass `tenantId` (hardcode `1` for now):
+
 ```ts
 @Get()
 findAll() {
@@ -235,6 +254,7 @@ findAll() {
 ```
 
 **Commit:**
+
 ```bash
 git add .
 git commit -m "feat: add multi-tenant isolation with tenantId"
@@ -247,11 +267,13 @@ git commit -m "feat: add multi-tenant isolation with tenantId"
 Add `@@index([tenantId])` to the Property model in schema.prisma.
 
 Run the migration:
+
 ```bash
 npx prisma migrate dev --name add-tenant-index
 ```
 
-Open `psql hpos_dev` and run:
+Open `psql hpos_test_db` and run:
+
 ```sql
 EXPLAIN ANALYZE SELECT * FROM "Property" WHERE "tenantId" = 1;
 ```
@@ -259,6 +281,7 @@ EXPLAIN ANALYZE SELECT * FROM "Property" WHERE "tenantId" = 1;
 Look for `Index Scan` in the output.
 
 **Commit:**
+
 ```bash
 git add .
 git commit -m "perf: add index on tenantId"
@@ -269,6 +292,7 @@ git commit -m "perf: add index on tenantId"
 ## Phase 1 Complete
 
 You've built:
+
 - NestJS project with a full CRUD resource
 - Prisma v5 wired into NestJS with proper lifecycle management
 - PostgreSQL database with migrations
