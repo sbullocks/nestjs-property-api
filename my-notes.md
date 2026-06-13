@@ -165,6 +165,21 @@ postgresql://my_mac_username@localhost:5432/hpos_test_db
 
 ---
 
+## Prisma Migrations
+
+Running `npx prisma migrate dev --name init` does the following:
+1. Reads the DATABASE_URL from `.env` to connect to Postgres
+2. Loads the models from `schema.prisma`
+3. Generates SQL (like `CREATE TABLE`) and saves it to `prisma/migrations/<timestamp>_init/migration.sql`
+4. Applies that SQL to the database
+5. Records what was run so it knows what's already been applied
+
+This is the same thing as going into Snowflake and running `CREATE TABLE` manually — Prisma just generates and runs the SQL for me.
+
+**The migration file should never be manually edited.** It's a historical record of what was applied to the database. If I need to change the schema, I update the model in `schema.prisma` and run `migrate dev` again — Prisma generates a new migration file for only the difference. Editing an already-applied migration causes drift between Prisma's history and what's actually in the database.
+
+---
+
 ## Prisma Generator — Must Use prisma-client-js
 
 When `prisma init` runs, it might generate the schema with `provider = "prisma-client"` and a custom output path. This breaks NestJS because it generates an ESM-incompatible client. Always fix it to:
