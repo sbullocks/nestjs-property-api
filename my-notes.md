@@ -123,6 +123,48 @@ Both are structured pipelines where each layer has one job. RTK Query manages se
 
 ---
 
+## Wiring Prisma into NestJS (Step 6)
+
+### nest generate service prisma
+Generates two files: `prisma.service.spec.ts` (Jest test file) and `prisma.service.ts`. Also auto-updates `app.module.ts` to add PrismaService as a provider. The spec file is for testing the service logic. The service file is where I write the actual PrismaService class.
+
+### nest generate module prisma
+Creates `prisma.module.ts` and auto-updates `app.module.ts` to add PrismaModule to the imports array.
+
+---
+
+### prisma.service.ts — What I Did
+
+Made `PrismaService` extend `PrismaClient` and implement `OnModuleInit` and `OnModuleDestroy`. Extending PrismaClient means PrismaService IS the client — I call `this.property.findMany()` directly instead of going through a separate instance.
+
+`OnModuleInit` and `OnModuleDestroy` are NestJS lifecycle hooks:
+- `onModuleInit` fires after all modules are loaded and providers are resolved — right before the app starts accepting traffic. This is when `$connect()` runs.
+- `onModuleDestroy` fires when the app shuts down. This is when `$disconnect()` runs — closes the connection cleanly.
+
+Without these hooks I'd have to manage the database connection myself. NestJS fires them at exactly the right moment.
+
+---
+
+### prisma.module.ts — providers, exports, @Global()
+
+Three things happening here and they each mean something different:
+
+**providers: [PrismaService]** — PrismaModule is responsible for creating and managing the PrismaService instance. It owns it. Not just the lifecycle hooks — it owns the whole thing.
+
+**exports: [PrismaService]** — makes PrismaService available to any module that imports PrismaModule. Just adding it to providers is not enough — without exports, other modules that import PrismaModule still can't access PrismaService. Have to explicitly say "this is available to whoever imports me."
+
+**@Global()** — import PrismaModule once in AppModule and PrismaService becomes available everywhere automatically. Without @Global(), every module that needs PrismaService would have to import PrismaModule itself.
+
+The breakdown: `providers` = I own this. `exports` = others can use it. `@Global()` = everyone gets it without asking.
+
+---
+
+### app.module.ts — Common Mistake
+
+When the CLI auto-generates, it may add PrismaService to both `AppModule.providers` AND PrismaModule already exports it. That creates two separate instances. The fix: only `PrismaModule` goes in `AppModule.imports[]`. Never add `PrismaService` to `AppModule.providers[]` when using PrismaModule.
+
+---
+
 ## Setting Up Postgres
 
 Two commands to know:
