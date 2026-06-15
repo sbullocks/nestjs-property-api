@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { PrismaService } from '../prisma/prisma.service'; // brings in the service so you can inject it
@@ -36,15 +36,58 @@ export class PropertiesService {
     });
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} property`;
+  // findOne(id: number) {
+  //   return `This action returns a #${id} property`;
+  // } // in Phase 3, replacing with the findFirst method (not findUnique bc filtering by both id and tenantId)
+
+  async findOne(id: number, tenantId: number): Promise<Property> {
+    const property = await this.prisma.property.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!property) {
+      throw new NotFoundException(`Property ${id} not found`);
+    }
+
+    return property;
   }
 
-  update(id: number, updatePropertyDto: UpdatePropertyDto) {
-    return `This action updates a #${id} property`;
+  // update(id: number, updatePropertyDto: UpdatePropertyDto) {
+  //   return `This action updates a #${id} property`;
+  // } // in Phase 3, updating this to use the tenantId from user and not the DTO. REQUIRED.
+
+  async update(
+    id: number,
+    dto: UpdatePropertyDto,
+    tenantId: number,
+  ): Promise<Property> {
+    const property = await this.prisma.property.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!property) {
+      throw new NotFoundException(`Property ${id} not found`);
+    }
+
+    return this.prisma.property.update({
+      where: { id },
+      data: dto,
+    });
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} property`;
+  // remove(id: number) {
+  //   return `This action removes a #${id} property`;
+  // } // in Phase 3 updating to use the JWT user.id and not the DTO info. REQUIRED
+
+  async remove(id: number, tenantId: number): Promise<Property> {
+    const property = await this.prisma.property.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!property) {
+      throw new NotFoundException(`Property ${id} not found`);
+    }
+
+    return this.prisma.property.delete({ where: { id } });
   }
 }

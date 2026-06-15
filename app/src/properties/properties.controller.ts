@@ -55,22 +55,42 @@ export class PropertiesController {
     return this.propertiesService.findAll(user.tenantId);
   }
 
+  // @Get(':id')
+  // findOne(@Param('id') id: string) {
+  //   return this.propertiesService.findOne(+id);
+  // } // in Phase 3, need to update the contorller to pass user.tenantId
+
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.propertiesService.findOne(+id);
+  findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.propertiesService.findOne(+id, user.tenantId);
   }
+
+  // @Patch(':id')
+  // update(
+  //   @Param('id') id: string,
+  //   @Body() updatePropertyDto: UpdatePropertyDto,
+  // ) {
+  //   return this.propertiesService.update(+id, updatePropertyDto);
+  // } // in Phase 3, updating the route to use the tenantId of the user (JWT), not the DTO.
 
   @Patch(':id')
   update(
     @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
     @Body() updatePropertyDto: UpdatePropertyDto,
   ) {
-    return this.propertiesService.update(+id, updatePropertyDto);
+    return this.propertiesService.update(+id, updatePropertyDto, user.tenantId);
   }
 
+  // @Roles(Role.Admin) // only admins can delete
+  // @Delete(':id')
+  // remove(@Param('id') id: string) {
+  //   return this.propertiesService.remove(+id);
+  // } in Phase 3, updating to use the jwt user.id and not the DTO. REQUIRED.
+
   @Roles(Role.Admin) // only admins can delete
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.propertiesService.remove(+id);
+  @Delete(`:id`)
+  remove(@Param(`id`) id: string, @CurrentUser() user: JwtPayload) {
+    return this.propertiesService.remove(+id, user.tenantId);
   }
 }
