@@ -245,6 +245,89 @@ Both `@UseGuards` and `@Controller` are decorators on the class. The order betwe
 
 ---
 
+## Multi-Tenant Isolation (Step 10)
+
+### What Multi-Tenancy Means Here
+
+Multiple property management companies (tenants) share the same database. Their data must never bleed into each other. We use row-level isolation — every table that holds tenant data gets a `tenantId` column and every query filters by it.
+
+### What Was Added to schema.prisma
+
+A new `Tenant` model was added and the `Property` model was updated to reference it:
+
+```prisma
+model Tenant {
+  id         Int        @id @default(autoincrement())
+  name       String
+  createdAt  DateTime   @default(now())
+  properties Property[]
+}
+
+model Property {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  ...
+}
+```
+
+`tenantId` on Property is a **foreign key** — it's not original to the Property model, it references the `id` of the Tenant model. This means:
+- You cannot create a Property with a `tenantId` that doesn't exist in the Tenant table — the database enforces this
+- Prisma can traverse the relation — `prisma.tenant.findUnique({ include: { properties: true } })` returns a tenant and all their properties in one query
+
+### The Migration
+
+```bash
+npx prisma migrate dev --name add-tenant
+```
+
+The generated `migration.sql` file shows the actual SQL Prisma ran — `ALTER TABLE` to add `tenantId`, `CREATE TABLE` for Tenant, and the foreign key constraint. Never edit this file — it's the historical record.
+
+### How the Service Filters by Tenant
+
+```ts
+async findAll(tenantId: number): Promise<Property[]> {
+  return this.prisma.property.findMany({
+    where: { tenantId },
+  });
+}
+```
+
+The controller passes the tenantId (hardcoded as `1` for now — will come from JWT in Phase 2):
+```ts
+findAll() {
+  return this.propertiesService.findAll(1);
+}
+```
+
+### Proof It Works
+
+Inserted a Tenant and a Property with `tenantId: 1` directly via psql. Then:
+- Called `findAll(1)` → returned the property ✓
+- Changed hardcoded value to `2` → returned `[]` ✓
+
+Same endpoint, same database, different tenantId = completely different results. That's row-level isolation working.
+
+### The Trade-off
+
+- **Benefit:** Simple setup, cheap to operate, easy to migrate all tenants at once
+- **Risk:** One missed `where: { tenantId }` in a query leaks data across tenants — the database won't catch it, only the app will
+
+In production, tenantId comes from the JWT so it's always present and always validated before reaching the service. That's Phase 2.
+
+### Cleaning Up Test Data
+
+```sql
+TRUNCATE "Property" RESTART IDENTITY CASCADE;
+TRUNCATE "Tenant" RESTART IDENTITY CASCADE;
+```
+
+Deletes all rows and resets auto-increment IDs. No files touched, no migrations created — data only.
+
+Exit psql with `\q`.
+
+---
+
 ## LoggingInterceptor (Step 9)
 
 ### What an Interceptor Does
