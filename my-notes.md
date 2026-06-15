@@ -220,6 +220,24 @@ This is the same thing as going into Snowflake and running `CREATE TABLE` manual
 
 **The migration file should never be manually edited.** It's a historical record of what was applied to the database. If I need to change the schema, I update the model in `schema.prisma` and run `migrate dev` again — Prisma generates a new migration file for only the difference. Editing an already-applied migration causes drift between Prisma's history and what's actually in the database.
 
+**What migrate dev also does — generates the Prisma Client.** After applying the migration, Prisma regenerates the TypeScript client based on the current schema. This is what makes `Property` available to import from `@prisma/client`. Every time the schema changes and migrate dev runs, the client is updated to reflect the new shape. If I add a field to a model, that field becomes available in TypeScript automatically after the next migration. No manual type writing needed — the types come directly from the schema.
+
+---
+
+## Using PrismaService in PropertiesService (Step 7)
+
+Three things needed in `properties.service.ts`:
+
+1. `import { PrismaService } from '../prisma/prisma.service'` — brings in the service so it can be injected
+2. `constructor(private readonly prisma: PrismaService) {}` — injects it so `this.prisma` is available in every method
+3. `import { Property } from '@prisma/client'` — brings in the generated TypeScript type so the return type of `findAll` is known
+
+The `Property` type comes from the Prisma client that was generated when `prisma migrate dev` ran. It matches exactly what's in the database — every field in the schema becomes a property on the type. TypeScript uses it to catch mistakes — if I try to access a field that doesn't exist on Property, it errors at compile time, not at runtime.
+
+`Promise<Property[]>` means: this async function returns a promise that resolves to an array of Property objects. The `[]` means array.
+
+`this.prisma.property.findMany()` — `this.prisma` is the injected PrismaService instance. `.property` is the table. `.findMany()` returns all rows.
+
 ---
 
 ## Prisma Generator — Must Use prisma-client-js
