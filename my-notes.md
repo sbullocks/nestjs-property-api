@@ -861,6 +861,64 @@ Similar to RTK Query where you had to manually convert query params — same con
 
 ---
 
+### include — When to Use It and What It Returns
+
+`include: { tenant: true }` tells Prisma to join the related tenant data and nest it inside each property in the response:
+
+```json
+// Without include — flat property object
+{ "id": 6, "name": "Sunset Apartments", "tenantId": 1 }
+
+// With include — tenant nested inside
+{ "id": 6, "name": "Sunset Apartments", "tenantId": 1,
+  "tenant": { "id": 1, "name": "Test Tenant" } }
+```
+
+Only use it when the UI actually needs to display the related data. If the frontend only needs property fields, don't include tenant — unnecessary data transfer.
+
+---
+
+### N+1 Problem — What It Is and Why include Fixes It
+
+The N+1 problem is what happens when developers need related data and write a loop instead of using `include`:
+
+```ts
+// N+1 — 1 query for the list, then 1 MORE query per property
+const properties = await prisma.property.findMany({ where });
+for (const p of properties) {
+  p.tenant = await prisma.tenant.findUnique({ where: { id: p.tenantId } });
+}
+// 4 properties = 5 queries. 100 properties = 101 queries.
+```
+
+`include` is the fix — Prisma fetches everything in 1 optimized query:
+```ts
+prisma.property.findMany({ where, include: { tenant: true } });
+// 100 properties = still 1 query. Prisma handles the join internally.
+```
+
+**`include` is the solution, not the problem.** The N+1 problem only occurs when developers don't know `include` exists and write the loop version instead.
+
+---
+
+### EXPLAIN ANALYZE — Index Behavior at Small Scale
+
+Adding a city index and then running EXPLAIN ANALYZE showed the query planner still chose `Seq Scan` despite the index existing:
+
+```sql
+CREATE INDEX "Property_city_idx" ON "Property"(city);
+EXPLAIN ANALYZE SELECT * FROM "Property" WHERE "tenantId" = 1 AND city = 'Austin';
+-- Result: Seq Scan (index ignored)
+```
+
+This is correct behavior — not a bug. With only 9 rows, reading the whole table is faster than the overhead of looking up the index, following heap pointers, and fetching rows. The query planner makes this decision automatically based on table statistics.
+
+**Index usage kicks in at scale.** With 10,000+ rows and an EXPLAIN ANALYZE showing `Seq Scan` with high execution time, that's the signal to add an index. Don't add indexes speculatively on small datasets — the planner will ignore them anyway.
+
+The `tenantId` index from Phase 1 was used (`Bitmap Index Scan`) because it was the primary filter on a larger relative portion of data. Adding a second filter (`city`) caused the planner to recalculate and decide seq scan was cheaper overall.
+
+---
+
 ### findAll() — Dynamic Where Clause + Pagination (Step 2)
 
 This step has several moving parts. Breaking it down:

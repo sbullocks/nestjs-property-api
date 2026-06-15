@@ -31,6 +31,7 @@ Do not read modules top to bottom like a book. Read the relevant section, then g
 | 10 | [Validation](./modules/10-validation.md) | class-validator, ValidationPipe, DTO decorators, whitelist |
 | 11 | [Error Handling](./modules/11-error-handling.md) | NotFoundException, HttpException, tenant-safe deletes |
 | 12 | [Pagination & Filtering](./modules/12-pagination-filtering.md) | skip/take, dynamic where, Promise.all, N+1, EXPLAIN ANALYZE |
+| 13 | [Testing](./modules/13-testing.md) | Jest, unit tests, mocking, e2e tests, coverage |
 
 ---
 
@@ -42,6 +43,7 @@ Do not read modules top to bottom like a book. Read the relevant section, then g
 | 2 | [Phase 2 Build](./exercises/phase-2.md) | 4/5 | JWT auth → RBAC → OpenAPI |
 | 3 | [Phase 3 Build](./exercises/phase-3.md) | 3/5 | Validation → complete CRUD → error handling |
 | 4 | [Phase 4 Build](./exercises/phase-4.md) | 4/5 | Pagination → filtering → query optimization |
+| 5 | [Phase 5 Build](./exercises/phase-5.md) | 4/5 | Unit tests → mocking → e2e tests → coverage |
 
 ---
 
