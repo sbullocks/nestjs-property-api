@@ -23,9 +23,16 @@ export class PropertiesController {
     return this.propertiesService.create(createPropertyDto);
   }
 
+  // MUST UPDATE SINCE I AM HANDING MULTI-TENANT ISOLATION NOW
+  // @Get()
+  // findAll() {
+  //   return this.propertiesService.findAll();
+  // }
+
   @Get()
   findAll() {
-    return this.propertiesService.findAll();
+    return this.propertiesService.findAll(1);
+    // JWT; happens in phase 2 upskilling..
   }
 
   @Get(':id')

@@ -14,8 +14,16 @@ export class PropertiesService {
   // findAll() {
   //   return `This action returns all properties`;
   // }
-  async findAll(): Promise<Property[]> {
-    return this.prisma.property.findMany(); // using this.prisma since its now available
+
+  // returns all properties from all tenants! THIS IS NOT RLS!
+  // async findAll(): Promise<Property[]> {
+  //   return this.prisma.property.findMany(); // using this.prisma since its now available
+  // }
+
+  async findAll(tenantId: number): Promise<Property[]> {
+    return this.prisma.property.findMany({
+      where: { tenantId },
+    });
   }
 
   findOne(id: number) {

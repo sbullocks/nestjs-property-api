@@ -15,6 +15,8 @@ datasource db {
 
 model Property {
   id        Int      @id @default(autoincrement())
+  tenantId  Int
+  tenant Tenant @relation(fields: [tenantId], references: [id])
   name      String
   address   String
   city      String
@@ -22,3 +24,12 @@ model Property {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model Tenant {
+  id         Int        @id @default(autoincrement())
+  name       String
+  createdAt  DateTime   @default(now())
+  properties Property[]
+}
+
+
