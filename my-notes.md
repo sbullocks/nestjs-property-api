@@ -245,6 +245,78 @@ Both `@UseGuards` and `@Controller` are decorators on the class. The order betwe
 
 ---
 
+## LoggingInterceptor (Step 9)
+
+### What an Interceptor Does
+
+Interceptors wrap both sides of the request/response cycle. The flow looks like this:
+
+```
+Client sends request (curl, Insomnia, frontend)
+  → Guard checks auth
+  → Interceptor fires BEFORE handler
+  → Controller (route handler)
+  → Service (business logic)
+  → Interceptor fires AFTER handler
+  → Response delivered back to client
+```
+
+The interceptor sits on both sides — it sees the request going in and the response coming out. This is different from a guard which only runs before.
+
+### What an Interceptor Can Do
+
+- **Add logic before/after method execution** — extra logic outside of what the service handles. Our logging is the example — has nothing to do with properties business logic but runs on every request.
+- **Transform the result** — intercept the response and reshape it before it goes to the client. Example: wrap every response in `{ data: ..., success: true }`.
+- **Transform exceptions** — catch an error thrown by the service and reformat it before the client sees it.
+- **Extend basic function behavior** — add caching, retries, timeouts without touching the service itself.
+- **Override a function** — return a cached response without the handler ever running.
+
+### The Two Arguments
+
+`ExecutionContext` — same as guards. Gives access to the request object via `context.switchToHttp().getRequest()`.
+
+`CallHandler` — gives access to `next.handle()` which actually executes the route handler. If `next.handle()` is never called, the handler never runs. Everything before it runs first. Everything in `tap()` runs after.
+
+### The LoggingInterceptor
+
+```ts
+@Injectable()
+export class LoggingInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    const { method, url } = context.switchToHttp().getRequest();
+    const start = Date.now();
+
+    console.log(`[${method}] ${url} — incoming`);
+
+    return next.handle().pipe(
+      tap(() => console.log(`[${method}] ${url} — ${Date.now() - start}ms`)),
+    );
+  }
+}
+```
+
+- `{ method, url }` destructured from the request — `method` is GET/POST/etc, `url` is the path
+- `Date.now()` captured before `next.handle()` = start time
+- `tap()` runs after the handler completes — calculates duration, logs it
+- `tap` doesn't modify the response — it just observes it (side effect only)
+
+Applied globally in `main.ts` — every route gets it automatically:
+```ts
+app.useGlobalInterceptors(new LoggingInterceptor());
+```
+
+Uses `new` here because `main.ts` is outside the NestJS DI context. Same reason as always — outside DI = instantiate manually.
+
+Terminal output on every request:
+```
+[GET] /properties — incoming
+[GET] /properties — 5ms
+```
+
+> Docs: https://docs.nestjs.com/interceptors
+
+---
+
 ## Testing API Endpoints
 
 Three ways to test — all send HTTP requests, just different tools:
