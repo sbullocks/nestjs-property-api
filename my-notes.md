@@ -249,19 +249,23 @@ Both `@UseGuards` and `@Controller` are decorators on the class. The order betwe
 
 ### What an Interceptor Does
 
-Interceptors wrap both sides of the request/response cycle. The flow looks like this:
+Interceptors wrap both sides of the request/response cycle. One request, one pass through the pipeline — the controller is NOT hit twice.
 
 ```
-Client sends request (curl, Insomnia, frontend)
-  → Guard checks auth
-  → Interceptor fires BEFORE handler
-  → Controller (route handler)
-  → Service (business logic)
-  → Interceptor fires AFTER handler
-  → Response delivered back to client
+Request arrives
+  → Guard (allow or deny — if denied, nothing below runs)
+  → Interceptor wraps everything below it
+      → Controller method executes (once)
+      → Service runs
+  → Interceptor sees the response on the way out
+→ Response sent back to client
 ```
 
-The interceptor sits on both sides — it sees the request going in and the response coming out. This is different from a guard which only runs before.
+Think of it like a sandwich — the interceptor is the bread, the controller and service are the filling. The bread is on both sides but the filling only happens once in the middle.
+
+The guard is completely separate and runs first. If the guard denies the request, the interceptor never runs, the controller never runs, nothing runs — 401 is returned immediately.
+
+The interceptor doesn't re-hit the controller. It wraps the execution — runs code before the handler fires, then runs code again after the handler has already completed and the response is being built.
 
 ### What an Interceptor Can Do
 
