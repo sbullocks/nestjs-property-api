@@ -607,6 +607,234 @@ Without `@ApiProperty()`, Swagger shows the request body as empty in the UI.
 
 ---
 
+## Phase 3 — Validation + Complete CRUD + Error Handling
+
+### Goal of Phase 3
+
+Replace all scaffold stub methods (`'This action adds a new property'`) with real Prisma operations, add input validation to every DTO so bad data is rejected at the boundary, and return proper HTTP errors instead of crashing with 500s.
+
+---
+
+### Why class-validator AND class-transformer
+
+Two separate libraries with two separate jobs:
+
+- **class-validator** — defines what valid data looks like via decorators (`@IsString()`, `@IsNotEmpty()`, etc.). Runs the validation checks.
+- **class-transformer** — converts the incoming plain JSON object into a typed class instance so the decorators can actually run against it. Without this, the body is just a raw JavaScript object — class-validator can't inspect it.
+
+```bash
+npm install class-validator class-transformer
+```
+
+You always need both. class-validator defines the rules. class-transformer makes the data into something class-validator can check.
+
+---
+
+### ValidationPipe — Global Setup
+
+Add to `main.ts` before `app.listen()`:
+
+```ts
+app.useGlobalPipes(
+  new ValidationPipe({
+    whitelist: true,   // strips fields not in the DTO — security feature
+    transform: true,   // auto-converts JSON to typed class instances
+  }),
+);
+```
+
+**`whitelist: true`** — if a request body includes extra fields not defined in the DTO, they are silently stripped before reaching the controller. No error is thrown — the extra fields just disappear. This prevents users from injecting unexpected fields.
+
+**`transform: true`** — required for type coercion. URL params and query strings always arrive as strings. Without `transform`, `@Param('id')` gives you `"1"` (string) even if typed as `number`. With it, NestJS coerces automatically.
+
+**Validation runs in the pipe — before the controller.** It's the earliest possible point in the pipeline, before the guard sandwich even starts. Bad data never reaches the controller at all.
+
+---
+
+### DTO Validation Decorators
+
+```ts
+// src/properties/dto/create-property.dto.ts
+import { IsString, IsNotEmpty, Length } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+
+export class CreatePropertyDto {
+  @ApiProperty({ example: 'Sunset Apartments' })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty({ example: '123 Main St' })
+  @IsString()
+  @IsNotEmpty()
+  address: string;
+
+  @ApiProperty({ example: 'Austin' })
+  @IsString()
+  @IsNotEmpty()
+  city: string;
+
+  @ApiProperty({ example: 'TX' })
+  @IsString()
+  @Length(2, 2)
+  state: string;
+}
+```
+
+Send an empty body → **400 Bad Request** with a message listing every failing field. The controller never runs.
+
+Send extra fields (e.g., `"hackerField": "bad"`) → silently stripped, no error, request succeeds if valid fields are present.
+
+---
+
+### LoginDto Validation
+
+```ts
+import { IsString, IsNotEmpty, IsNumber, IsEnum } from 'class-validator';
+import { Role } from 'src/common/enums/role.enum';
+
+export class LoginDto {
+  @ApiProperty({ example: 1 })
+  @IsNumber()
+  tenantId: number;
+
+  @ApiProperty({ example: 'admin' })
+  @IsString()
+  @IsNotEmpty()
+  @IsEnum(Role)
+  role: string;
+}
+```
+
+`@IsEnum(Role)` restricts `role` to only `'admin'`, `'tenant_user'`, or `'viewer'`. Sending `"role": "superadmin"` → **400 Bad Request**.
+
+---
+
+### Tenant Isolation on Writes — Security Rule
+
+**tenantId must always come from the JWT, never from the request body.**
+
+```ts
+// Service — accepts tenantId as a separate parameter
+async create(dto: CreatePropertyDto, tenantId: number): Promise<Property> {
+  return this.prisma.property.create({
+    data: {
+      ...dto,      // copies name, address, city, state from the DTO
+      tenantId,    // always from the JWT — not from the request body
+    },
+  });
+}
+
+// Controller — passes user.tenantId from the verified JWT
+@Post()
+create(@CurrentUser() user: JwtPayload, @Body() createPropertyDto: CreatePropertyDto) {
+  return this.propertiesService.create(createPropertyDto, user.tenantId);
+}
+```
+
+The JWT is server-signed — a malicious user can't forge what's inside it. Anything that comes from the client (body, params, query) can be faked. Anything from the JWT cannot. This applies to all write operations: `create`, `update`, `remove`.
+
+---
+
+### Complete CRUD Service Patterns
+
+**findOne — verify ownership before returning:**
+```ts
+async findOne(id: number, tenantId: number): Promise<Property> {
+  const property = await this.prisma.property.findFirst({
+    where: { id, tenantId },
+  });
+  if (!property) throw new NotFoundException(`Property ${id} not found`);
+  return property;
+}
+```
+
+**update — verify ownership before mutating:**
+```ts
+async update(id: number, dto: UpdatePropertyDto, tenantId: number): Promise<Property> {
+  const property = await this.prisma.property.findFirst({
+    where: { id, tenantId },
+  });
+  if (!property) throw new NotFoundException(`Property ${id} not found`);
+  return this.prisma.property.update({ where: { id }, data: dto });
+}
+```
+
+**remove — verify ownership before deleting:**
+```ts
+async remove(id: number, tenantId: number): Promise<Property> {
+  const property = await this.prisma.property.findFirst({
+    where: { id, tenantId },
+  });
+  if (!property) throw new NotFoundException(`Property ${id} not found`);
+  return this.prisma.property.delete({ where: { id } });
+}
+```
+
+Pattern is the same for all three: `findFirst` with both `id` AND `tenantId` → if null throw NotFoundException → then mutate. The caller never knows if a record exists but belongs to another tenant — both cases return 404.
+
+**Every write controller method needs `@CurrentUser()` and must pass `user.tenantId` to the service:**
+```ts
+@Patch(':id')
+update(
+  @Param('id') id: string,
+  @CurrentUser() user: JwtPayload,
+  @Body() updatePropertyDto: UpdatePropertyDto,
+) {
+  return this.propertiesService.update(+id, updatePropertyDto, user.tenantId);
+}
+```
+
+If the service signature changes (adds a parameter), the controller call must match — TypeScript will show a red squiggle on the call if the argument count is wrong.
+
+---
+
+### ROLES_KEY Bug — String Literal vs Constant
+
+```ts
+// Wrong — stores metadata under the string 'ROLES_KEY'
+export const Roles = (...roles: Role[]) => SetMetadata('ROLES_KEY', roles);
+
+// Correct — stores metadata under the constant value 'roles'
+export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
+```
+
+The decorator stored metadata under `'ROLES_KEY'` (the variable name as a string literal). The guard was reading for `ROLES_KEY` (the constant, whose value is `'roles'`). They never matched — so `requiredRoles` was always `undefined` → guard always returned `true` → every role could hit every route.
+
+This is exactly why the `ROLES_KEY` constant exists — use it in both the decorator and the guard so they always refer to the same key. One change in one place updates both.
+
+---
+
+### Foreign Key Constraint — Tenant Must Exist First
+
+`Property` has a foreign key on `tenantId` referencing the `Tenant` table. You cannot create a Property for a tenantId that doesn't exist in the Tenant table — the database enforces this.
+
+Error: `Foreign key constraint violated on the constraint: Property_tenantId_fkey`
+
+Fix: insert a Tenant row first:
+```bash
+psql hpos_test_db
+```
+```sql
+INSERT INTO "Tenant" (name) VALUES ('Test Tenant');
+```
+
+This is why in production, tenants are created through a registration flow before any of their data can be inserted.
+
+---
+
+### Testing Role Restrictions in Swagger
+
+The "Authorize" button in Swagger holds one active token. To test a 403 on a role-restricted route:
+1. Login with a non-admin role: `POST /auth/login` with `"role": "tenant_user"`
+2. Copy that token from the response
+3. Click Authorize → replace the current token with the new one
+4. Try `DELETE /properties/{id}` → expect **403 Forbidden**
+
+If you only called login with a viewer role to test the 400 validation but didn't replace the Swagger token, the DELETE still runs with the original admin token — that's why it would succeed when you expected it to fail.
+
+---
+
 ## Wiring Prisma into NestJS (Step 6)
 
 ### nest generate service prisma

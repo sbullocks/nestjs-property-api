@@ -452,6 +452,62 @@ findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
 
 ---
 
+## Phase 4 — Pagination, Filtering & Query Optimization
+
+### QueryPropertyDto
+```ts
+import { Type } from 'class-transformer';
+
+@IsOptional() @Type(() => Number) @IsInt() @Min(1)
+page?: number = 1;
+
+@IsOptional() @IsString()
+city?: string;
+
+@IsOptional() @IsString()
+search?: string;
+```
+
+### Controller
+```ts
+@Get()
+findAll(@CurrentUser() user: JwtPayload, @Query() query: QueryPropertyDto) {
+  return this.propertiesService.findAll(user.tenantId, query);
+}
+```
+
+### Service — pagination + filtering
+```ts
+import { Prisma } from '@prisma/client';
+
+const where: Prisma.PropertyWhereInput = { tenantId };
+if (query.city) where.city = query.city;
+if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
+
+const skip = ((query.page ?? 1) - 1) * (query.limit ?? 10);
+const limit = query.limit ?? 10;
+
+const [data, total] = await Promise.all([
+  this.prisma.property.findMany({ where, skip, take: limit }),
+  this.prisma.property.count({ where }),
+]);
+
+return { data, meta: { total, page: query.page ?? 1, limit, totalPages: Math.ceil(total / limit) } };
+```
+
+### N+1 fix
+```ts
+// Wrong — N+1
+for (const p of properties) {
+  await prisma.tenant.findUnique({ where: { id: p.tenantId } });
+}
+
+// Correct — single query
+prisma.property.findMany({ where, include: { tenant: true } });
+```
+
+---
+
 ## tsconfig (NestJS + Prisma v5)
 
 ```json
