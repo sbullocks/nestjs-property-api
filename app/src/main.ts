@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -17,6 +18,14 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // strip fields not in the DTO - ignores extra properties. security feature - if someone sends extra fields not in the DTO, they are silently stripped before reaching the controller.
+      transform: true, // auto-convert incoming JSON to the DTO class instance. is required for type coercion, query params always arrive as strings. without this, @Param('id') gives you "1" as string not 1 as number even if you typed it as number.
+      forbidNonWhitelisted: false, // don't error on extra fields, just strip them
+    }),
+  );
 
   await app.listen(process.env.PORT ?? 3000);
 }
