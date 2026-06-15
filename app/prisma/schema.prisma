@@ -23,6 +23,10 @@ model Property {
   state     String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  // tells Prisma to generate CREATE INDEX ON "Property"("tenantId").
+  // run the migration after adding new values! npx prisma migrate dev --name add-tenant-index
 }
 
 model Tenant {
