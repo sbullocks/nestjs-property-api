@@ -264,7 +264,45 @@ git commit -m "feat: add multi-tenant isolation with tenantId"
 
 ## Step 11: Add index and verify with EXPLAIN ANALYZE
 
-Add `@@index([tenantId])` to the Property model in schema.prisma.
+### Part A — Run EXPLAIN ANALYZE BEFORE adding the index
+
+First insert some test data so the query has something to scan:
+
+```bash
+psql hpos_test_db
+```
+
+```sql
+INSERT INTO "Tenant" (name, "createdAt") VALUES ('Acme Properties', NOW());
+INSERT INTO "Property" (name, address, city, state, "tenantId", "createdAt", "updatedAt")
+VALUES ('Sunset Apartments', '123 Main St', 'Austin', 'TX', 1, NOW(), NOW());
+```
+
+Now run EXPLAIN ANALYZE **before** the index exists:
+
+```sql
+EXPLAIN ANALYZE SELECT * FROM "Property" WHERE "tenantId" = 1;
+```
+
+Look for `Seq Scan` in the output — this means Postgres is scanning every row in the table to find matches. Save or screenshot this output so you can compare it after.
+
+Exit psql:
+```bash
+\q
+```
+
+---
+
+### Part B — Add the index and run EXPLAIN ANALYZE again
+
+Add `@@index([tenantId])` to the Property model in `schema.prisma`:
+
+```prisma
+model Property {
+  ...
+  @@index([tenantId])
+}
+```
 
 Run the migration:
 
@@ -272,13 +310,23 @@ Run the migration:
 npx prisma migrate dev --name add-tenant-index
 ```
 
-Open `psql hpos_test_db` and run:
+Open psql again and run the same query:
 
 ```sql
 EXPLAIN ANALYZE SELECT * FROM "Property" WHERE "tenantId" = 1;
 ```
 
-Look for `Index Scan` in the output.
+Now look for `Index Scan` instead of `Seq Scan`. That's Postgres using the index to jump directly to matching rows instead of scanning everything.
+
+**Before:** `Seq Scan` — reads every row
+**After:** `Index Scan` — jumps directly to matching rows
+
+Clean up test data:
+```sql
+TRUNCATE "Property" RESTART IDENTITY CASCADE;
+TRUNCATE "Tenant" RESTART IDENTITY CASCADE;
+\q
+```
 
 **Commit:**
 
