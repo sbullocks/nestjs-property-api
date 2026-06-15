@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
@@ -24,6 +25,7 @@ import {
   ApiBearerAuth,
   ApiResponse,
 } from '@nestjs/swagger';
+import { QueryPropertyDto } from './dto/query-property.dto';
 
 @ApiTags('properties') // groups routes under "properties" in the UI
 @ApiBearerAuth() // shows the padlock icon — route requires JWT
@@ -50,9 +52,13 @@ export class PropertiesController {
   @ApiOperation({ summary: 'Get all properties for the current tenant' })
   @ApiResponse({ status: 200, description: 'Returns array of properties' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
+  // @Get()
+  // findAll(@CurrentUser() user: JwtPayload, ) {
+  //   return this.propertiesService.findAll(user.tenantId);
+  // } // in Phase 4, must update the controller to accept the @Query decorator
   @Get()
-  findAll(@CurrentUser() user: JwtPayload) {
-    return this.propertiesService.findAll(user.tenantId);
+  findAll(@CurrentUser() user: JwtPayload, @Query() query: QueryPropertyDto) {
+    return this.propertiesService.findAll(user.tenantId, query);
   }
 
   // @Get(':id')

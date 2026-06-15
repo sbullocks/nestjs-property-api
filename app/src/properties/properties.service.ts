@@ -3,6 +3,8 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { PrismaService } from '../prisma/prisma.service'; // brings in the service so you can inject it
 import { Property } from '@prisma/client'; // brings in the generated type so TypeScript knows what findMany() returns
+import { Prisma } from '@prisma/client';
+import { QueryPropertyDto } from './dto/query-property.dto';
 
 @Injectable()
 export class PropertiesService {
@@ -30,10 +32,37 @@ export class PropertiesService {
   //   return this.prisma.property.findMany(); // using this.prisma since its now available
   // }
 
-  async findAll(tenantId: number): Promise<Property[]> {
-    return this.prisma.property.findMany({
-      where: { tenantId },
-    });
+  // async findAll(tenantId: number): Promise<Property[]> {
+  //   return this.prisma.property.findMany({
+  //     where: { tenantId },
+  //   });
+  // }
+
+  async findAll(tenantId: number, query: QueryPropertyDto) {
+    const where: Prisma.PropertyWhereInput = { tenantId };
+    if (query.city) where.city = query.city;
+    if (query.state) where.state = query.state;
+    if (query.search)
+      where.name = { contains: query.search, mode: 'insensitive' };
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.property.findMany({ where, skip, take: limit }),
+      this.prisma.property.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   // findOne(id: number) {
