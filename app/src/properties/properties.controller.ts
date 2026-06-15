@@ -18,7 +18,15 @@ import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { Role } from 'src/common/enums/role.enum';
 import { Roles } from 'src/common/decorators/roles.decorator';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiResponse,
+} from '@nestjs/swagger';
 
+@ApiTags('properties') // groups routes under "properties" in the UI
+@ApiBearerAuth() // shows the padlock icon — route requires JWT
 @Controller('properties')
 // @UseGuards(ApiKeyGuard) // in Phase 2, will replace with JwtAuthGuard + RolesGuard
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -30,18 +38,9 @@ export class PropertiesController {
     return this.propertiesService.create(createPropertyDto);
   }
 
-  // MUST UPDATE SINCE I AM HANDING MULTI-TENANT ISOLATION NOW
-  // @Get()
-  // findAll() {
-  //   return this.propertiesService.findAll();
-  // }
-
-  // @Get()
-  // findAll() {
-  //   return this.propertiesService.findAll(1);
-  //   // JWT; happens in phase 2 upskilling..
-  // } // in Phase 2, updating the findAll to use @CurrentUser() and pass user.tenantId to the service
-
+  @ApiOperation({ summary: 'Get all properties for the current tenant' })
+  @ApiResponse({ status: 200, description: 'Returns array of properties' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @Get()
   findAll(@CurrentUser() user: JwtPayload) {
     return this.propertiesService.findAll(user.tenantId);
@@ -60,7 +59,7 @@ export class PropertiesController {
     return this.propertiesService.update(+id, updatePropertyDto);
   }
 
-  @Roles(Role.Admin)   // only admins can delete
+  @Roles(Role.Admin) // only admins can delete
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.propertiesService.remove(+id);

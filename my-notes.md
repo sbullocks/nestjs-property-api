@@ -123,6 +123,476 @@ Both are structured pipelines where each layer has one job. RTK Query manages se
 
 ---
 
+## Phase 2 — JWT Auth, RBAC, OpenAPI
+
+### Goal of Phase 2
+
+Replace the hardcoded API key from Phase 1 with real JWT authentication, add role-based access control so different users have different permissions, and generate API documentation with Swagger for users who don't interact with a UI.
+
+---
+
+### Installing Dependencies
+
+```bash
+npm install @nestjs/jwt @nestjs/passport passport passport-jwt @nestjs/swagger
+npm install --save-dev @types/passport-jwt
+```
+
+- `@nestjs/jwt` — signs and verifies JWT tokens
+- `@nestjs/passport` / `passport` — authentication middleware that NestJS wraps. Passport handles the strategy pattern for verifying tokens
+- `passport-jwt` — the specific Passport strategy for JWT verification
+- `@nestjs/swagger` — generates the Swagger/OpenAPI documentation UI from decorators
+- `@types/passport-jwt` — TypeScript types for passport-jwt (dev only, not shipped to production)
+
+Add to `.env`:
+```
+JWT_SECRET=your-super-secret-key-change-in-production
+```
+
+---
+
+### What JWT Is
+
+JSON Web Token — a signed token composed of 3 parts separated by dots:
+1. **Header** — the algorithm used to sign it (`HS256`)
+2. **Payload** — the claims (user id, tenantId, role, expiry)
+3. **Signature** — proof the token wasn't tampered with
+
+Anyone can read the payload, but only the server with the secret key can create a valid signature. Expires automatically — unlike the API key which never expires.
+
+Sent on every request as: `Authorization: Bearer <token>`
+
+---
+
+### JWT Payload Interface
+
+The payload is what gets packed into the token. Define it as a TypeScript interface so it's typed everywhere:
+
+```ts
+// src/auth/interfaces/jwt-payload.interface.ts
+export interface JwtPayload {
+  sub: number;        // subject — standard JWT claim, conventionally the user's ID
+  tenantId: number;   // for multi-tenant query scoping
+  role: string;       // for RBAC
+}
+```
+
+**Note on `sub` vs `tenantId`:** In this demo we set `sub: tenantId` as a shortcut. In a real system, `sub` would be the authenticated user's ID (from a users table) and `tenantId` would be a separate claim — because one user can belong to one tenant, but they're not the same concept. Don't conflate them.
+
+---
+
+### Role Enum
+
+Defines valid roles as an enum so TypeScript catches typos and refactoring is safe:
+
+```ts
+// src/common/enums/role.enum.ts
+export enum Role {
+  Admin = 'admin',
+  TenantUser = 'tenant_user',
+  Viewer = 'viewer',
+}
+```
+
+Using raw strings like `'admin'` everywhere is fragile — one typo and access is broken silently. The enum makes it a compiler error instead.
+
+---
+
+### RBAC — How It Works
+
+Three pieces work together:
+1. **Role enum** — defines the valid roles
+2. **@Roles() decorator** — marks which roles can access a specific route
+3. **RolesGuard** — reads the role from the JWT and compares it to the required roles
+
+Two separate jobs, two separate guards:
+- **JwtAuthGuard** → authentication: is this token real and not expired? Decodes it and attaches the payload to `request.user`.
+- **RolesGuard** → authorization: does this user's role match what this route requires?
+
+JwtAuthGuard doesn't care about roles. RolesGuard doesn't re-read or re-verify the raw JWT token — by the time it runs, JwtAuthGuard has already decoded it and placed the payload on `request.user`. RolesGuard just reads `request.user.role` that's already sitting there.
+
+```
+1. JwtAuthGuard  → decodes + verifies token → attaches payload to request.user
+2. RolesGuard    → reads request.user.role (already decoded) → compares to @Roles() metadata
+```
+
+No double-reading of the token. The work is already done by step 2.
+
+Similar to an AWS/enterprise system where different IAM roles have different permissions. Admin can do everything, TenantUser can only see their own data, Viewer can only read.
+
+---
+
+### @Roles() Decorator — What It Actually Does
+
+`@SetMetadata('roles', ['admin'])` attaches invisible metadata to the route handler — like a sticky note on the function. It doesn't execute anything and doesn't protect anything by itself. It just stores the data. RolesGuard is what reads it and enforces it.
+
+`@Roles(Role.Admin)` is just a cleaner wrapper around SetMetadata:
+
+```ts
+// These two do the exact same thing:
+@SetMetadata('roles', ['admin'])    // raw — error-prone string literal
+@Roles(Role.Admin)                  // wrapper — uses ROLES_KEY constant, typo-proof
+```
+
+The `ROLES_KEY` constant is used in both the decorator and the guard so there's one source of truth for the metadata key string instead of hoping every `'roles'` string is spelled consistently.
+
+**No `@Roles()` on a route = open to all authenticated users.**
+
+Inside RolesGuard:
+```ts
+const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [...]);
+if (!requiredRoles) return true;  // no metadata found = any valid JWT passes
+```
+
+JwtAuthGuard still runs first — so a request with no token still gets a 401. But once the token is verified, if the route has no `@Roles()` attached, any role gets through.
+
+---
+
+### Reflector and getAllAndOverride
+
+`Reflector` is a NestJS utility that reads metadata attached by decorators. RolesGuard uses it to ask: "what roles did the developer put on this route?"
+
+`getAllAndOverride` handles the case where `@Roles()` exists at both the controller level AND the method level. **The more specific one wins — method overrides class.**
+
+```ts
+@Roles(Role.Admin)               // class-level: whole controller requires Admin by default
+@Controller('properties')
+export class PropertiesController {
+
+  @Get()
+  findAll() { ... }              // no method-level @Roles → inherits Admin from class
+
+  @Roles(Role.Viewer)            // method-level → OVERRIDES the class-level
+  @Get(':id')
+  findOne() { ... }              // Viewers can access this one even though class says Admin
+}
+```
+
+`getAllAndOverride` checks the **handler (method) first**, then falls back to the **class (controller)** if the method has nothing. If neither has `@Roles()`, returns `undefined` → guard returns `true` → open to all authenticated users.
+
+The alternative is `getAllAndMerge` which combines both lists. `getAllAndOverride` says the specific beats the general — which is almost always what you want.
+
+---
+
+### Feature Module Pattern
+
+When generating auth:
+```bash
+nest generate module auth      # creates auth.module.ts, updates app.module.ts imports
+nest generate service auth     # creates auth.service.ts, updates auth.module.ts providers
+nest generate controller auth  # creates auth.controller.ts, updates auth.module.ts controllers
+```
+
+Same pattern as when we created Properties. NestJS calls this the Feature Module Pattern — each feature owns its own module, service, and controller.
+
+---
+
+### JWT Strategy
+
+The strategy tells Passport how to extract and verify the JWT on every request:
+
+```ts
+// src/auth/jwt.strategy.ts
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor() {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: process.env.JWT_SECRET!,  // ! = non-null assertion
+    });
+  }
+
+  async validate(payload: JwtPayload) {
+    return payload; // attached to request.user after signature is verified
+  }
+}
+```
+
+**`process.env.JWT_SECRET!`** — the `!` is a TypeScript non-null assertion. `process.env.X` is typed as `string | undefined` because TypeScript can't guarantee the env var exists. The `!` tells TypeScript "I know this won't be undefined, trust me." Safe here because we control the `.env` file.
+
+`validate()` runs after the signature is verified. Whatever is returned here gets attached to `request.user` — so `request.user.tenantId` and `request.user.role` are available in every controller method.
+
+---
+
+### Auth Module
+
+```ts
+@Module({
+  imports: [
+    PassportModule,
+    JwtModule.register({
+      secret: process.env.JWT_SECRET,
+      signOptions: { expiresIn: '7d' },
+    }),
+  ],
+  providers: [AuthService, JwtStrategy],
+  controllers: [AuthController],
+})
+export class AuthModule {}
+```
+
+`JwtModule.register()` configures the JWT signing options globally for this module. `expiresIn: '7d'` means every token expires after 7 days automatically.
+
+---
+
+### Auth Service — Login
+
+```ts
+@Injectable()
+export class AuthService {
+  constructor(private readonly jwtService: JwtService) {}
+
+  async login(tenantId: number, role: string): Promise<{ access_token: string }> {
+    const payload: JwtPayload = { sub: tenantId, tenantId, role };
+    return {
+      access_token: this.jwtService.sign(payload),
+    };
+  }
+}
+```
+
+`jwtService.sign(payload)` creates and signs the token. Returns it as `access_token` — this is what the client stores and sends on every future request.
+
+---
+
+### Auth Controller — Login Endpoint
+
+```ts
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('login')
+  login(@Body() body: { tenantId: number; role: string }) {
+    return this.authService.login(body.tenantId, body.role);
+  }
+}
+```
+
+`@Post('login')` must be INSIDE the class body. A common mistake is placing it outside the closing `}` — it becomes a decorator with nothing to attach to.
+
+Test:
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId": 1, "role": "admin"}'
+# Expected: { "access_token": "eyJ..." }
+```
+
+---
+
+### Full Authentication Flow
+
+1. User sends `POST /auth/login` with tenantId and role (later: email + password)
+2. **Current demo:** Server skips validation and signs immediately — no credentials checked. **Real production flow:** Server looks up the user in the database, verifies the password, then signs the JWT.
+3. Server returns the JWT to the client
+4. Client stores the token (localStorage or cookie)
+5. Every subsequent request includes `Authorization: Bearer <token>`
+6. `JwtAuthGuard` intercepts — Passport extracts and verifies the signature
+7. `validate()` runs — payload attached to `request.user`
+8. Controller reads `user.tenantId` and `user.role` from `request.user`
+
+**This replaces the hardcoded `tenantId: 1` from Phase 1** — tenantId now comes from the verified JWT automatically.
+
+---
+
+### JwtAuthGuard
+
+```ts
+// src/common/guards/jwt-auth.guard.ts
+import { Injectable } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {}
+```
+
+Short on purpose. `AuthGuard('jwt')` is a factory from `@nestjs/passport` that returns a fully built guard class already wired to the `'jwt'` Passport strategy. It handles extracting the Bearer token, verifying the signature, and throwing a 401 if invalid. We're just extending it — not reimplementing it.
+
+`@Injectable()` is still required so NestJS DI can instantiate it when `@UseGuards(JwtAuthGuard)` is used on a controller.
+
+---
+
+### @CurrentUser() Decorator
+
+Instead of injecting `@Req() req` and writing `req.user` everywhere, create a clean param decorator that extracts `request.user` directly:
+
+```ts
+// src/common/decorators/current-user.decorator.ts
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+
+export const CurrentUser = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): JwtPayload => {
+    const request = ctx.switchToHttp().getRequest();
+    return request.user;
+  },
+);
+```
+
+Usage in controller:
+```ts
+@Get()
+findAll(@CurrentUser() user: JwtPayload) {
+  return this.propertiesService.findAll(user.tenantId);
+}
+```
+
+`createParamDecorator` is a NestJS utility for building custom parameter decorators. The callback receives the execution context and returns whatever value should be injected into the parameter. Here it returns `request.user` — the already-decoded JWT payload that JwtAuthGuard placed there.
+
+---
+
+### Applying Both Guards to the Controller
+
+```ts
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('properties')
+export class PropertiesController {
+
+  @Get()
+  findAll(@CurrentUser() user: JwtPayload) {
+    return this.propertiesService.findAll(user.tenantId);   // tenantId from JWT, not hardcoded
+  }
+
+  @Roles(Role.Admin)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.propertiesService.remove(+id);
+  }
+}
+```
+
+- `@Get()` — no `@Roles()` → open to all authenticated users
+- `@Delete(':id')` — `@Roles(Role.Admin)` → only admins can delete
+
+**401 vs 403:**
+- **401 Unauthorized** — no token or invalid token. JwtAuthGuard blocks it. "Who are you?"
+- **403 Forbidden** — valid token, wrong role. RolesGuard blocks it. "I know who you are — you can't do this."
+
+---
+
+### TypeScript Gotchas in NestJS
+
+**`import type` for interfaces in decorated signatures:**
+```ts
+// Wrong — TypeScript error ts(1272) with isolatedModules + emitDecoratorMetadata
+import { JwtPayload } from '...';
+
+// Correct
+import type { JwtPayload } from '...';
+```
+
+When `isolatedModules: true` and `emitDecoratorMetadata: true` are both on (NestJS tsconfig has both), TypeScript tries to emit runtime type metadata for decorated method parameters. An interface has no runtime value — it only exists in TypeScript. Using `import type` tells TypeScript not to emit it. You'll see this in every NestJS project.
+
+**No semicolons after decorators:**
+```ts
+@UseGuards(JwtAuthGuard, RolesGuard);  // WRONG — semicolon breaks it
+@UseGuards(JwtAuthGuard, RolesGuard)   // correct
+export class PropertiesController { ... }
+```
+
+Decorators sit directly on top of what they decorate with no punctuation.
+
+---
+
+### Testing JWT Flow End-to-End
+
+Install `jq` first — parses JSON in the terminal, used constantly with APIs:
+```bash
+brew install jq
+```
+
+Get a token and use it in one command:
+```bash
+TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId": 1, "role": "admin"}' | jq -r '.access_token')
+
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/properties
+```
+
+Without a token (should get 401):
+```bash
+curl http://localhost:3000/properties
+```
+
+With a token but wrong role (should get 403 — once delete is role-restricted):
+```bash
+TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId": 1, "role": "viewer"}' | jq -r '.access_token')
+
+curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:3000/properties/1
+```
+
+---
+
+### Swagger / OpenAPI (Step 13)
+
+Swagger auto-generates interactive API documentation from decorators — no separate doc writing needed. Visit `http://localhost:3000/api` once set up.
+
+**Setup in `main.ts`:**
+```ts
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+
+const config = new DocumentBuilder()
+  .setTitle('HPOS API')
+  .setDescription('Property management API')
+  .setVersion('1.0')
+  .addBearerAuth()   // adds the Authorize button to the UI
+  .build();
+
+const document = SwaggerModule.createDocument(app, config);
+SwaggerModule.setup('api', app, document);
+```
+
+This goes before `app.listen()`.
+
+**Decorate the controller:**
+```ts
+@ApiTags('properties')      // groups routes under "properties" in the UI
+@ApiBearerAuth()            // shows the padlock — route requires JWT
+@Controller('properties')
+export class PropertiesController {
+
+  @ApiOperation({ summary: 'Get all properties for the current tenant' })
+  @ApiResponse({ status: 200, description: 'Returns array of properties' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @Get()
+  findAll(@CurrentUser() user: JwtPayload) { ... }
+}
+```
+
+**Decorate DTOs** so Swagger knows the request body shape:
+```ts
+import { ApiProperty } from '@nestjs/swagger';
+
+export class CreatePropertyDto {
+  @ApiProperty({ example: 'Sunset Apartments' })
+  name: string;
+
+  @ApiProperty({ example: '123 Main St' })
+  address: string;
+
+  @ApiProperty({ example: 'Austin' })
+  city: string;
+
+  @ApiProperty({ example: 'TX' })
+  state: string;
+}
+```
+
+Without `@ApiProperty()`, Swagger shows the request body as empty in the UI.
+
+**Using the Swagger UI:**
+1. Visit `http://localhost:3000/api`
+2. Click "Authorize" → enter the token from the login endpoint
+3. Try `GET /properties` → should return tenant data
+4. Try `DELETE /properties/1` with a viewer token → should get 403
+
+---
+
 ## Wiring Prisma into NestJS (Step 6)
 
 ### nest generate service prisma
