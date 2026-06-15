@@ -835,6 +835,110 @@ If you only called login with a viewer role to test the 400 validation but didn'
 
 ---
 
+## Phase 4 — Pagination, Filtering & Query Optimization
+
+### Goal of Phase 4
+
+Make `GET /properties` production-ready. A query that returns every row in the database breaks at scale. Add pagination so only a slice of data is returned, filtering so clients can narrow results, and understand the N+1 problem.
+
+---
+
+### QueryPropertyDto — @Type(() => Number)
+
+Query params (`?page=1&limit=10&city=Austin`) always arrive as strings — even if typed as `number` in TypeScript. `transform: true` on ValidationPipe handles type coercion for request bodies but NOT for query params. For query params you need `@Type(() => Number)` from `class-transformer` explicitly:
+
+```ts
+@IsOptional()
+@Type(() => Number)   // coerces '1' (string) → 1 (number)
+@IsInt()
+@Min(1)
+page?: number = 1;
+```
+
+`@IsOptional()` is required on every field — query params are never required. If the user doesn't send `?page=`, validation is skipped entirely for that field and the default value kicks in.
+
+Similar to RTK Query where you had to manually convert query params — same concept, just enforced at the DTO layer here.
+
+---
+
+### findAll() — Dynamic Where Clause + Pagination (Step 2)
+
+This step has several moving parts. Breaking it down:
+
+**1. Build the where clause dynamically:**
+```ts
+const where: Prisma.PropertyWhereInput = { tenantId };  // always filter by tenant
+if (query.city) where.city = query.city;                // add city filter if provided
+if (query.state) where.state = query.state;             // add state filter if provided
+if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
+```
+
+`Prisma.PropertyWhereInput` is the TypeScript type for the `where` object — gives autocomplete and type safety when adding conditions. This is separate from the return type of the function.
+
+The `if` checks mean: only add the filter if the query param was actually sent. If no `?city=` in the URL, `query.city` is `undefined` → the `if` is false → the filter is not added → all cities are returned.
+
+**2. Calculate pagination offsets:**
+```ts
+const page = query.page ?? 1;      // default to page 1 if not sent
+const limit = query.limit ?? 10;   // default to 10 results if not sent
+const skip = (page - 1) * limit;   // page 1 → skip 0, page 2 → skip 10, page 3 → skip 20
+```
+
+`skip` is how many records to jump over. `take` is how many to return. This is standard offset pagination.
+
+**3. Run data and count queries in parallel:**
+```ts
+const [data, total] = await Promise.all([
+  this.prisma.property.findMany({ where, skip, take: limit }),
+  this.prisma.property.count({ where }),
+]);
+```
+
+`Promise.all` fires both queries at the same time instead of sequentially. The data query returns the page of results. The count query returns the total number of matching records (needed to calculate total pages). Running them in parallel cuts the wait time in half vs awaiting one then the other.
+
+Note: `where` here is the dynamic where object built above — NOT `{ tenantId }`. That was the most common mistake: building the dynamic where and then ignoring it by passing `{ tenantId }` directly to `findMany`.
+
+**4. Return data + metadata:**
+```ts
+return {
+  data,
+  meta: {
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  },
+};
+```
+
+The return type changed from `Promise<Property[]>` to an inferred object type — because the shape is no longer a plain array. TypeScript infers the return type automatically so no need to write out the full complex type manually.
+
+**Full method:**
+```ts
+async findAll(tenantId: number, query: QueryPropertyDto) {
+  const where: Prisma.PropertyWhereInput = { tenantId };
+  if (query.city) where.city = query.city;
+  if (query.state) where.state = query.state;
+  if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
+
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 10;
+  const skip = (page - 1) * limit;
+
+  const [data, total] = await Promise.all([
+    this.prisma.property.findMany({ where, skip, take: limit }),
+    this.prisma.property.count({ where }),
+  ]);
+
+  return {
+    data,
+    meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+  };
+}
+```
+
+---
+
 ## Wiring Prisma into NestJS (Step 6)
 
 ### nest generate service prisma

@@ -50,7 +50,13 @@ export class PropertiesService {
     const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([
-      this.prisma.property.findMany({ where, skip, take: limit }),
+      this.prisma.property.findMany({
+        where,
+        skip,
+        take: limit,
+        // include: { tenant: true }, ** use include to force Prisma to fetch everything in 1 optimized query instead of writing a loop for each record returned to then make additional call to get tenant data...
+        // if you need related data, always use include — never loop and query. The N+1 problem is what happens when developers don't know include exists and write the loop version instead.
+      }),
       this.prisma.property.count({ where }),
     ]);
 
