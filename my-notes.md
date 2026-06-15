@@ -245,6 +245,27 @@ Both `@UseGuards` and `@Controller` are decorators on the class. The order betwe
 
 ---
 
+## Testing API Endpoints
+
+Three ways to test — all send HTTP requests, just different tools:
+
+**curl** — terminal, fastest, full control over headers:
+```bash
+curl http://localhost:3000/properties                        # no header → 401
+curl -H "x-api-key: secret" http://localhost:3000/properties # with header → []
+curl -v -H "x-api-key: secret" http://localhost:3000/properties # verbose — shows headers sent/received
+```
+
+**Insomnia** — GUI app, good for complex requests. Add custom headers in the Headers tab. Use for POST/PATCH requests where you need to send a body.
+
+**Thunder Client** — same as Insomnia but lives inside VS Code as an extension.
+
+**Browser** — typing a URL directly sends a plain GET with no custom headers. Can't add `x-api-key` this way — always returns 401 with our guard. This is expected behavior, not a bug. The browser not being able to hit the route has nothing to do with the frontend not being set up — it's because there's no way to attach custom headers from the address bar.
+
+For API key auth: always use the **Headers tab**, not the Auth/Bearer tab. Bearer token is for JWT auth (Phase 2). API key is a custom header.
+
+---
+
 ## Setting Up Postgres
 
 Two commands to know:
