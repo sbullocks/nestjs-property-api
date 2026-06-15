@@ -24,14 +24,19 @@ Do not read modules top to bottom like a book. Read the relevant section, then g
 | 3 | [Guards + Interceptors](./modules/03-guards-interceptors.md) | Auth guards, logging interceptors, request pipeline |
 | 4 | [Multi-Tenancy](./modules/04-multi-tenancy.md) | Row-level isolation, tenantId, relations |
 | 5 | [Query Optimization](./modules/05-query-optimization.md) | N+1, include vs select, indexes, EXPLAIN ANALYZE |
+| 6 | [TypeScript Depth](./modules/06-typescript-depth.md) | Generics, utility types, decorators, enums |
+| 7 | [JWT Authentication](./modules/07-jwt-auth.md) | JWT flow, Passport, JwtStrategy, JwtAuthGuard |
+| 8 | [RBAC](./modules/08-rbac.md) | Roles, custom decorators, RolesGuard, Reflector |
+| 9 | [OpenAPI / Swagger](./modules/09-openapi.md) | Auto-generated API docs, @ApiProperty, Swagger UI |
 
 ---
 
 ## Exercises
 
-| Phase | Exercise | Focus |
-|---|---|---|
-| 1 | [Phase 1 Build](./exercises/phase-1.md) | Full end-to-end: scaffold → Prisma → guards → interceptors → multi-tenancy |
+| Phase | Exercise | Difficulty | Focus |
+|---|---|---|---|
+| 1 | [Phase 1 Build](./exercises/phase-1.md) | 3/5 | Scaffold → Prisma → guards → interceptors → multi-tenancy |
+| 2 | [Phase 2 Build](./exercises/phase-2.md) | 4/5 | JWT auth → RBAC → OpenAPI |
 
 ---
 

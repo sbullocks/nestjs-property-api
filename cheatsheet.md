@@ -249,6 +249,149 @@ curl -X POST -H "Content-Type: application/json" -H "x-api-key: secret" \
 
 ---
 
+## Phase 2 — JWT + RBAC + Swagger
+
+### JWT Auth Setup
+```bash
+npm install @nestjs/jwt @nestjs/passport passport passport-jwt @nestjs/swagger
+npm install --save-dev @types/passport-jwt
+```
+
+### JWT Payload Interface
+```ts
+export interface JwtPayload {
+  sub: number;
+  tenantId: number;
+  role: string;
+}
+```
+
+### JWT Strategy
+```ts
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor() {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: process.env.JWT_SECRET,
+    });
+  }
+  async validate(payload: JwtPayload) { return payload; }
+}
+```
+
+### AuthModule
+```ts
+@Module({
+  imports: [
+    PassportModule,
+    JwtModule.register({ secret: process.env.JWT_SECRET, signOptions: { expiresIn: '7d' } }),
+  ],
+  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy],
+})
+export class AuthModule {}
+```
+
+### AuthService Login
+```ts
+async login(tenantId: number, role: string) {
+  const payload: JwtPayload = { sub: tenantId, tenantId, role };
+  return { access_token: this.jwtService.sign(payload) };
+}
+```
+
+### JwtAuthGuard
+```ts
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {}
+```
+
+### Role Enum
+```ts
+export enum Role { Admin = 'admin', TenantUser = 'tenant_user', Viewer = 'viewer' }
+```
+
+### @Roles() Decorator
+```ts
+export const ROLES_KEY = 'roles';
+export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
+```
+
+### RolesGuard
+```ts
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
+      context.getHandler(), context.getClass(),
+    ]);
+    if (!requiredRoles) return true;
+    const user: JwtPayload = context.switchToHttp().getRequest().user;
+    return requiredRoles.some((role) => user.role === role);
+  }
+}
+```
+
+### @CurrentUser() Decorator
+```ts
+export const CurrentUser = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): JwtPayload => {
+    return ctx.switchToHttp().getRequest().user;
+  },
+);
+```
+
+### Applying Guards
+```ts
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('properties')
+export class PropertiesController {
+  @Get()
+  findAll(@CurrentUser() user: JwtPayload) {
+    return this.propertiesService.findAll(user.tenantId);
+  }
+
+  @Roles(Role.Admin)
+  @Delete(':id')
+  remove(@Param('id') id: string) { ... }
+}
+```
+
+### Swagger Setup (main.ts)
+```ts
+const config = new DocumentBuilder()
+  .setTitle('HPOS API')
+  .setVersion('1.0')
+  .addBearerAuth()
+  .build();
+SwaggerModule.setup('api', app, SwaggerModule.createDocument(app, config));
+```
+
+### Swagger Decorators
+```ts
+@ApiTags('properties')
+@ApiBearerAuth()
+@ApiOperation({ summary: 'Get all properties' })
+@ApiResponse({ status: 200 })
+@ApiProperty({ example: 'Sunset Apartments' })
+```
+
+### Test JWT Flow
+```bash
+# Get token
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId": 1, "role": "admin"}'
+
+# Use token
+curl -H "Authorization: Bearer <token>" http://localhost:3000/properties
+```
+
+---
+
 ## tsconfig (NestJS + Prisma v5)
 
 ```json
