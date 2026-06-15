@@ -474,6 +474,20 @@ export class PropertiesController {
 
 ### TypeScript Gotchas in NestJS
 
+**Swagger can't read inline types — always use a DTO class:**
+
+```ts
+// Wrong — Swagger sends empty body, body is undefined at runtime
+login(@Body() body: { tenantId: number; role: string }) { ... }
+
+// Correct — Swagger reads @ApiProperty() at runtime and builds the form
+login(@Body() body: LoginDto) { ... }
+```
+
+TypeScript types (`{ tenantId: number; role: string }`) are erased after compilation — they don't exist at runtime. Swagger can only read class-based DTOs with `@ApiProperty()` decorators because those are real JavaScript objects that survive compilation. Without this, "Try it out" sends an empty body and the controller throws a 500 because `body` is undefined.
+
+---
+
 **`import type` for interfaces in decorated signatures:**
 ```ts
 // Wrong — TypeScript error ts(1272) with isolatedModules + emitDecoratorMetadata

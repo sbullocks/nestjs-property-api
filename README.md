@@ -28,6 +28,8 @@ Do not read modules top to bottom like a book. Read the relevant section, then g
 | 7 | [JWT Authentication](./modules/07-jwt-auth.md) | JWT flow, Passport, JwtStrategy, JwtAuthGuard |
 | 8 | [RBAC](./modules/08-rbac.md) | Roles, custom decorators, RolesGuard, Reflector |
 | 9 | [OpenAPI / Swagger](./modules/09-openapi.md) | Auto-generated API docs, @ApiProperty, Swagger UI |
+| 10 | [Validation](./modules/10-validation.md) | class-validator, ValidationPipe, DTO decorators, whitelist |
+| 11 | [Error Handling](./modules/11-error-handling.md) | NotFoundException, HttpException, tenant-safe deletes |
 
 ---
 
@@ -37,6 +39,7 @@ Do not read modules top to bottom like a book. Read the relevant section, then g
 |---|---|---|---|
 | 1 | [Phase 1 Build](./exercises/phase-1.md) | 3/5 | Scaffold → Prisma → guards → interceptors → multi-tenancy |
 | 2 | [Phase 2 Build](./exercises/phase-2.md) | 4/5 | JWT auth → RBAC → OpenAPI |
+| 3 | [Phase 3 Build](./exercises/phase-3.md) | 3/5 | Validation → complete CRUD → error handling |
 
 ---
 

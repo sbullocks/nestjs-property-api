@@ -33,10 +33,19 @@ import {
 export class PropertiesController {
   constructor(private readonly propertiesService: PropertiesService) {}
 
+  // @Post()
+  // create(@Body() createPropertyDto: CreatePropertyDto) {
+  //   return this.propertiesService.create(createPropertyDto);
+  // } // in Phase 3, must update the id to be passed from the user, not the DTO. REQUIRED!
+  // return this.propertiesService.create(body, body.tenantId); // tenantId from body = dangerous
+
   @Post()
-  create(@Body() createPropertyDto: CreatePropertyDto) {
-    return this.propertiesService.create(createPropertyDto);
-  }
+  create(
+    @CurrentUser() user: JwtPayload,
+    @Body() createPropertyDto: CreatePropertyDto,
+  ) {
+    return this.propertiesService.create(createPropertyDto, user.tenantId);
+  } // // tenantId from JWT = safe
 
   @ApiOperation({ summary: 'Get all properties for the current tenant' })
   @ApiResponse({ status: 200, description: 'Returns array of properties' })

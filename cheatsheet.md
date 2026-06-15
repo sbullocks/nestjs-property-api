@@ -392,6 +392,66 @@ curl -H "Authorization: Bearer <token>" http://localhost:3000/properties
 
 ---
 
+## Phase 3 — Validation + CRUD + Error Handling
+
+### ValidationPipe (main.ts)
+```ts
+app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+```
+
+### DTO Validation Decorators
+```ts
+import { IsString, IsNotEmpty, IsNumber, IsEnum, IsOptional, Length } from 'class-validator';
+
+@IsString() @IsNotEmpty()   // required string
+@IsNumber()                 // required number
+@IsEnum(Role)               // must match enum value
+@IsOptional()               // skip validation if field absent
+@Length(2, 2)               // exactly 2 chars
+```
+
+### UpdatePropertyDto
+```ts
+import { PartialType } from '@nestjs/swagger';  // NOT @nestjs/mapped-types
+export class UpdatePropertyDto extends PartialType(CreatePropertyDto) {}
+```
+
+### Prisma CRUD
+```ts
+// Create
+prisma.property.create({ data: { ...dto, tenantId } })
+
+// Find one (tenant-scoped)
+prisma.property.findFirst({ where: { id, tenantId } })
+
+// Update
+prisma.property.update({ where: { id }, data: dto })
+
+// Delete
+prisma.property.delete({ where: { id } })
+```
+
+### NotFoundException
+```ts
+import { NotFoundException } from '@nestjs/common';
+throw new NotFoundException(`Property ${id} not found`);
+```
+
+### Controller with CurrentUser on writes
+```ts
+@Post()
+create(@CurrentUser() user: JwtPayload, @Body() dto: CreatePropertyDto) {
+  return this.propertiesService.create(dto, user.tenantId);
+}
+
+@Get(':id')
+findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+  return this.propertiesService.findOne(+id, user.tenantId);
+}
+```
+
+---
+
 ## tsconfig (NestJS + Prisma v5)
 
 ```json

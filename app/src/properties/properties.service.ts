@@ -7,8 +7,18 @@ import { Property } from '@prisma/client'; // brings in the generated type so Ty
 @Injectable()
 export class PropertiesService {
   constructor(private readonly prisma: PrismaService) {} // inject it so this.prisma is available
-  create(createPropertyDto: CreatePropertyDto) {
-    return 'This action adds a new property';
+  // create(createPropertyDto: CreatePropertyDto) {
+  //   return 'This action adds a new property';
+  // } // in Phase 3, replacing the create() stub with real prisma insert.
+
+  // REQUIRED: MAKE SURE THAT THE tenantId COMES FROM THE JWT, NOT THE DTO.
+  async create(dto: CreatePropertyDto, tenantId: number): Promise<Property> {
+    return this.prisma.property.create({
+      data: {
+        ...dto,
+        tenantId,
+      },
+    });
   }
 
   // findAll() {
