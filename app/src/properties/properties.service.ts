@@ -25,7 +25,7 @@ export class PropertiesService {
         tenantId,
       },
     });
-    await this.cacheManager.reset();
+    await this.cacheManager.clear();
     return result;
   }
 
@@ -114,7 +114,7 @@ export class PropertiesService {
       where: { id },
       data: dto,
     });
-    await this.cacheManager.reset();
+    await this.cacheManager.clear();
     return result;
   }
 
@@ -132,7 +132,7 @@ export class PropertiesService {
     }
 
     const result = await this.prisma.property.delete({ where: { id } });
-    await this.cacheManager.reset();
+    await this.cacheManager.clear();
     return result;
   }
 }

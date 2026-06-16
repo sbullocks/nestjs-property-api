@@ -58,7 +58,13 @@ export class PropertiesController {
   // findAll(@CurrentUser() user: JwtPayload, ) {
   //   return this.propertiesService.findAll(user.tenantId);
   // } // in Phase 4, must update the controller to accept the @Query decorator
-  @UseInterceptors(CacheInterceptor)
+
+  // DISABLED — CacheInterceptor keys by URL only (e.g. GET /properties).
+  // In a multi-tenant app, two tenants hitting the same URL get the same cached response —
+  // tenant 2 would receive tenant 1's data. Safe only on public, user-agnostic endpoints
+  // (e.g. GET /public/listings with no auth). To use caching here correctly, you need a
+  // custom cache key that includes tenantId: e.g. `properties:${tenantId}:page:${page}`.
+  // @UseInterceptors(CacheInterceptor)
   @Get()
   findAll(@CurrentUser() user: JwtPayload, @Query() query: QueryPropertyDto) {
     return this.propertiesService.findAll(user.tenantId, query);
