@@ -1047,6 +1047,290 @@ Lines in red = untested. Key targets:
 
 ---
 
+## Phase 6 — ConfigModule, Rate Limiting & Caching
+
+### Goal of Phase 6
+
+Make the API production-ready by replacing raw `process.env` with validated config, protecting endpoints from abuse with rate limiting, and caching read-heavy responses to skip the database on repeated identical requests.
+
+---
+
+### ConfigModule — Startup Validation with Joi
+
+```bash
+npm install @nestjs/config joi @nestjs/throttler @nestjs/cache-manager cache-manager
+```
+
+In `app.module.ts`:
+```ts
+import { ConfigModule } from '@nestjs/config';
+import * as Joi from 'joi';
+
+ConfigModule.forRoot({
+  isGlobal: true,
+  validationSchema: Joi.object({
+    DATABASE_URL: Joi.string().required(),
+    JWT_SECRET: Joi.string().min(16).required(),
+    PORT: Joi.number().default(3000),
+  }),
+}),
+```
+
+`isGlobal: true` — available everywhere without importing ConfigModule in every feature module.
+
+`validationSchema` — Joi schema that runs at **startup**. If `JWT_SECRET` is missing or under 16 characters, the app refuses to start with a clear error message. This is better than failing at the first user request — you want to catch missing config immediately when you deploy, not after real traffic hits.
+
+---
+
+### ConfigService — Replace process.env
+
+After ConfigModule is wired, inject `ConfigService` anywhere you need an env var:
+
+**In JwtStrategy:**
+```ts
+constructor(private configService: ConfigService) {
+  super({
+    jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+    ignoreExpiration: false,
+    secretOrKey: configService.get<string>('JWT_SECRET'),
+  });
+}
+```
+
+**JwtModule.register() can't inject services — use registerAsync:**
+```ts
+JwtModule.registerAsync({
+  imports: [ConfigModule],
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) => ({
+    secret: config.get<string>('JWT_SECRET'),
+    signOptions: { expiresIn: '7d' },
+  }),
+}),
+```
+
+`register()` runs synchronously at module load time — no DI available yet, so you can't inject ConfigService. `registerAsync()` waits for DI to be ready before calling the factory function, which means ConfigService can be injected and called normally inside `useFactory`.
+
+---
+
+### ThrottlerModule — Rate Limiting
+
+In `app.module.ts`:
+```ts
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+
+// imports:
+ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+
+// providers:
+{ provide: APP_GUARD, useClass: ThrottlerGuard },
+```
+
+`APP_GUARD` is a NestJS injection token for global guards. Using `{ provide: APP_GUARD, useClass: ThrottlerGuard }` in `AppModule.providers[]` registers `ThrottlerGuard` as a guard that runs on every single route — no `@UseGuards()` needed on individual controllers. 100 requests per minute limit applied globally.
+
+**Override the limit on a specific route:**
+```ts
+@Throttle({ default: { ttl: 60000, limit: 5 } })
+@Post('login')
+login(@Body() body: LoginDto) { ... }
+```
+
+Login endpoint gets only 5 attempts per minute — 6th attempt returns **429 Too Many Requests**. Login is the primary target for brute-force attacks so it gets a stricter limit.
+
+**Skip throttle on a route:**
+```ts
+@SkipThrottle()
+@Get('health')
+health() { return { status: 'ok' }; }
+```
+
+Infrastructure health checks ping the endpoint constantly — they'd burn the rate limit. `@SkipThrottle()` excludes it from throttle checks entirely.
+
+**Test the 429:**
+```bash
+for i in {1..7}; do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3000/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"tenantId": 1, "role": "admin"}';
+done
+# 201, 201, 201, 201, 201, 429, 429
+```
+
+---
+
+### CacheModule — Response Caching
+
+In `app.module.ts`:
+```ts
+import { CacheModule } from '@nestjs/cache-manager';
+
+CacheModule.register({ isGlobal: true, ttl: 30000, max: 100 }),
+```
+
+- `ttl: 30000` — each cached entry expires after **30 seconds** (milliseconds). After expiry, the next request hits the database and a fresh entry is stored.
+- `max: 100` — maximum number of **unique cache keys** in memory at once. This is NOT row count. Each distinct URL is one key:
+  - `GET /properties` = key 1
+  - `GET /properties?city=Austin` = key 2
+  - `GET /properties?city=Dallas` = key 3
+  - A single key can hold a response with 500 rows inside it.
+
+**Apply CacheInterceptor to a route:**
+```ts
+import { UseInterceptors } from '@nestjs/common';
+import { CacheInterceptor } from '@nestjs/cache-manager';
+
+@UseInterceptors(CacheInterceptor)
+@Get()
+findAll(@CurrentUser() user: JwtPayload, @Query() query: QueryPropertyDto) {
+  return this.propertiesService.findAll(user.tenantId, query);
+}
+```
+
+`CacheInterceptor` uses the request URL as the cache key automatically. First request hits the database. Second identical request returns the cached response without touching the database. Different query params = different cache key = separate cache entry.
+
+---
+
+### Cache Invalidation on Writes
+
+When a property is created, updated, or deleted, the cached `GET /properties` response is stale. Clear it after every write:
+
+```ts
+import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Inject } from '@nestjs/common';
+
+@Injectable()
+export class PropertiesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+  ) {}
+
+  async create(dto: CreatePropertyDto, tenantId: number): Promise<Property> {
+    const result = await this.prisma.property.create({ data: { ...dto, tenantId } });
+    await this.cacheManager.clear();
+    return result;
+  }
+
+  async update(id: number, dto: UpdatePropertyDto, tenantId: number): Promise<Property> {
+    // ... findFirst, NotFoundException ...
+    const result = await this.prisma.property.update({ where: { id }, data: dto });
+    await this.cacheManager.clear();
+    return result;
+  }
+
+  async remove(id: number, tenantId: number): Promise<Property> {
+    // ... findFirst, NotFoundException ...
+    const result = await this.prisma.property.delete({ where: { id } });
+    await this.cacheManager.clear();
+    return result;
+  }
+}
+```
+
+`cacheManager.clear()` clears the entire cache. All three write methods need it — missing it on `update()` or `remove()` means a deletion or edit won't be reflected until the TTL naturally expires 30 seconds later.
+
+`@Inject(CACHE_MANAGER)` — unlike normal NestJS DI, `CACHE_MANAGER` is a token (string constant), not a class. `@Inject()` is needed because NestJS can only auto-inject by class type — when the thing being injected is identified by a token instead of a class, you have to be explicit.
+
+**Version note:** `cache-manager` v5+ renamed `reset()` to `clear()`. If you see `Property 'reset' does not exist on type 'Cache'`, use `clear()` instead.
+
+---
+
+### How TTL Actually Works — No Auto-Fetch
+
+The cache does not proactively refresh. TTL just deletes the entry after 30 seconds — nothing happens at expiry, no database query runs, no results go anywhere. The entry is simply gone.
+
+```
+Request 1 → no cache → hits DB → stores result → returns result
+Request 2 (15s later) → cache hit → returns stored result, DB never touched
+--- 30 seconds pass — cache entry deleted ---
+Request 3 (31s later) → no cache → hits DB again → stores fresh result → returns
+```
+
+**Users cannot manually refresh within the 30s window.** There is no force-refresh mechanism. Every request to the same URL gets the cached version until either:
+1. A write happens (`create`/`update`/`remove`) → `cacheManager.clear()` wipes it immediately
+2. The TTL expires naturally
+
+The TTL is a safety net — if a write ever missed calling `clear()` (a bug, or a direct DB edit via TablePlus), the stale data still falls off within 30 seconds instead of living forever.
+
+---
+
+### Health Endpoint — AppController and AppService
+
+The health endpoint belongs in `AppController` and `AppService` — not `PropertiesController`. `AppController` owns root-level app concerns (`/`, `/health`). `PropertiesController` owns `/properties`.
+
+**`app.service.ts`:**
+```ts
+getHealth(): { status: string; timestamp: string } {
+  return { status: 'ok', timestamp: new Date().toISOString() };
+}
+```
+
+**`app.controller.ts`:**
+```ts
+import { SkipThrottle } from '@nestjs/throttler';
+
+@SkipThrottle()
+@Get('health')
+getHealth() {
+  return this.appService.getHealth();
+}
+```
+
+`@SkipThrottle()` goes on the method, not the class — so only `GET /health` skips rate limiting, not every route in `AppController`.
+
+`new Date().toISOString()` returns `"2026-06-15T22:32:36.571Z"` — UTC, unambiguous, readable by both humans and machines. Standard format used in every production API.
+
+Response: `{ "status": "ok", "timestamp": "2026-06-15T22:32:36.571Z" }`
+
+---
+
+### Browser Address Bar Limitation
+
+Typing `localhost:3000/properties` directly into the browser sends a plain GET with no headers. There is no way to attach `Authorization: Bearer <token>` from the address bar — 401 is always the result for any protected route.
+
+**Options for testing authenticated routes without a frontend:**
+- **Swagger UI** (`localhost:3000/api`) — click Authorize, paste token, padlock handles it on every request
+- **curl** — `curl -H "Authorization: Bearer <token>" http://localhost:3000/properties`
+- **Insomnia / Thunder Client** — GUI with a Headers tab
+
+**In a real frontend (React + RTK Query):**
+```ts
+prepareHeaders: (headers, { getState }) => {
+  const token = getState().auth.token;
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  return headers;
+}
+```
+
+The frontend stores the token after login and attaches it to every request automatically. The user never sees it — from their perspective they just log in and data appears.
+
+---
+
+### What Gets Cached vs What Doesn't
+
+Cache is good for:
+- Read-heavy endpoints (`GET`) that change infrequently
+- Expensive queries (aggregations, large joins)
+
+Never cache:
+- Write operations (`POST`, `PATCH`, `DELETE`) — never return cached responses on mutations
+- Data that must always be fresh — cache introduces acceptable staleness, which isn't always acceptable
+
+---
+
+### CacheInterceptor + Multi-Tenancy = Security Bug
+
+`CacheInterceptor` keys by URL only. In a multi-tenant app, `GET /properties` is the same URL regardless of which tenant is calling it. Tenant 1 hits first — response is cached. Tenant 2 hits the same URL and gets **tenant 1's data back** without touching the database.
+
+This was discovered during testing: TOKEN2 (tenantId: 2) returned tenantId: 1's properties because the cache returned the first cached response for that URL to everyone.
+
+**Fix:** Remove `@UseInterceptors(CacheInterceptor)` from any route where different users should see different data for the same URL. `CacheInterceptor` is only safe on truly public, user-agnostic endpoints.
+
+In production, tenant-scoped caching requires a custom cache key strategy that includes `tenantId` in the key — e.g., `properties:tenantId:1:page:1`— so each tenant has their own cache entry.
+
+---
+
 ## Phase 4 — Pagination, Filtering & Query Optimization
 
 ### Goal of Phase 4
