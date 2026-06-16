@@ -1,26 +1,32 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject } from '@nestjs/common';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { PrismaService } from '../prisma/prisma.service'; // brings in the service so you can inject it
 import { Property } from '@prisma/client'; // brings in the generated type so TypeScript knows what findMany() returns
 import { Prisma } from '@prisma/client';
 import { QueryPropertyDto } from './dto/query-property.dto';
+import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager';
 
 @Injectable()
 export class PropertiesService {
-  constructor(private readonly prisma: PrismaService) {} // inject it so this.prisma is available
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+  ) {} // inject it so this.prisma is available
   // create(createPropertyDto: CreatePropertyDto) {
   //   return 'This action adds a new property';
   // } // in Phase 3, replacing the create() stub with real prisma insert.
 
   // REQUIRED: MAKE SURE THAT THE tenantId COMES FROM THE JWT, NOT THE DTO.
   async create(dto: CreatePropertyDto, tenantId: number): Promise<Property> {
-    return this.prisma.property.create({
+    const result = await this.prisma.property.create({
       data: {
         ...dto,
         tenantId,
       },
     });
+    await this.cacheManager.reset();
+    return result;
   }
 
   // findAll() {
@@ -104,10 +110,12 @@ export class PropertiesService {
       throw new NotFoundException(`Property ${id} not found`);
     }
 
-    return this.prisma.property.update({
+    const result = await this.prisma.property.update({
       where: { id },
       data: dto,
     });
+    await this.cacheManager.reset();
+    return result;
   }
 
   // remove(id: number) {
@@ -123,6 +131,8 @@ export class PropertiesService {
       throw new NotFoundException(`Property ${id} not found`);
     }
 
-    return this.prisma.property.delete({ where: { id } });
+    const result = await this.prisma.property.delete({ where: { id } });
+    await this.cacheManager.reset();
+    return result;
   }
 }

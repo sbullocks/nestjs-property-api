@@ -26,6 +26,8 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { QueryPropertyDto } from './dto/query-property.dto';
+import { UseInterceptors } from '@nestjs/common';
+import { CacheInterceptor } from '@nestjs/cache-manager';
 
 @ApiTags('properties') // groups routes under "properties" in the UI
 @ApiBearerAuth() // shows the padlock icon — route requires JWT
@@ -56,6 +58,7 @@ export class PropertiesController {
   // findAll(@CurrentUser() user: JwtPayload, ) {
   //   return this.propertiesService.findAll(user.tenantId);
   // } // in Phase 4, must update the controller to accept the @Query decorator
+  @UseInterceptors(CacheInterceptor)
   @Get()
   findAll(@CurrentUser() user: JwtPayload, @Query() query: QueryPropertyDto) {
     return this.propertiesService.findAll(user.tenantId, query);
