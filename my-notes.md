@@ -1047,6 +1047,62 @@ Lines in red = untested. Key targets:
 
 ---
 
+## Visualizing the Data Model
+
+### Mermaid ERD — mermaid.live
+
+The file `data-model.md` at the project root contains two Mermaid diagrams:
+1. The current schema (Tenant → Property)
+2. The expanded Hillpointe-style schema (Company → Property → Unit → Lease → Payment + MaintenanceRequest)
+
+**To view either diagram visually:**
+1. Open `data-model.md`
+2. Copy the full code block (everything between the triple backticks including the word `mermaid`)
+3. Go to **https://mermaid.live**
+4. Paste into the left panel — diagram renders instantly on the right
+
+Each box is a database table. Each line between boxes is a relation (foreign key). The labels on the lines (`owns`, `contains`, `generates`) describe the relationship direction.
+
+**VS Code alternative:**
+Install the extension "Markdown Preview Mermaid Support" → open `data-model.md` → hit the preview button. Renders inline without leaving VS Code.
+
+**GitHub:** Mermaid diagrams render automatically in any `.md` file pushed to GitHub — no extra steps.
+
+---
+
+### Prisma Studio — Live View of Your Actual Data
+
+```bash
+cd app
+npx prisma studio
+```
+
+Opens at `http://localhost:5555` — a live browser UI showing all your real models, all your actual rows, and the relations between them. Click any row to see its related records. Best tool for understanding data while developing — shows exactly what's in the database at any moment.
+
+---
+
+### Reading the Diagram
+
+| Symbol on the line | Meaning |
+|---|---|
+| `\|\|` on one side | Exactly one — the FK side, required |
+| `o{` on the other side | Zero or more — the "many" side |
+| `\|\|--o{` together | One-to-many relation |
+
+Example from the diagram: `Company ||--o{ Property` — one Company owns zero or more Properties. A Property must belong to exactly one Company.
+
+The flow of the expanded model top to bottom:
+```
+Company → owns → Property → contains → Unit → has → Lease → generates → Payment
+                                        Unit → receives → MaintenanceRequest
+Resident → signs → Lease
+Resident → submits → MaintenanceRequest
+```
+
+Every arrow = a foreign key in the child table pointing back up to the parent.
+
+---
+
 ## Phase 6 — ConfigModule, Rate Limiting & Caching
 
 ### Goal of Phase 6
