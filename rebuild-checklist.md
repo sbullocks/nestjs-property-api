@@ -6,24 +6,38 @@ Use this to rebuild the app from scratch. Each item is one action. When you get 
 
 ## Phase 1 — Scaffold, Prisma, Guards, Multi-Tenancy
 
-- [ ] `nest new app` → `cd app` → `npm run start:dev` — confirm Hello World at localhost:3000
-- [ ] `npm install prisma@"^6.0.0" @prisma/client@"^6.0.0"`
-- [ ] `npx prisma init` — fix generator to `prisma-client-js`, delete `prisma.config.ts` if generated
-- [ ] Add `DATABASE_URL` to `.env`
-- [ ] Define `Tenant` and `[Resource]` models in `schema.prisma` — Resource gets `tenantId Int` + `@relation`
-- [ ] `npx prisma migrate dev --name init`
-- [ ] `nest generate module prisma` → `nest generate service prisma`
-- [ ] Write `PrismaService` — extends `PrismaClient`, implements `OnModuleInit` / `OnModuleDestroy`
-- [ ] Add `@Global()` to `PrismaModule`, add `PrismaService` to `providers` and `exports`
-- [ ] `nest generate resource [resources]` — REST API, generate CRUD entry points yes
-- [ ] Inject `PrismaService` into `[Resource]Service` constructor
-- [ ] Replace `findAll` stub — `prisma.[resource].findMany({ where: { tenantId } })`, hardcode `tenantId: 1` for now
-- [ ] Create `ApiKeyGuard` — `implements CanActivate`, checks `request.headers['x-api-key']`
-- [ ] Apply `@UseGuards(ApiKeyGuard)` to resource controller
-- [ ] Create `LoggingInterceptor` — `implements NestInterceptor`, log method/url before, duration after via `tap()`
-- [ ] `app.useGlobalInterceptors(new LoggingInterceptor())` in `main.ts`
-- [ ] Test: `curl -H "x-api-key: secret" http://localhost:3000/[resources]` → `[]`
-- [ ] Insert a Tenant + Resource row in psql, confirm list returns it, change hardcoded tenantId to 2, confirm `[]`
+- [x] `nest new app` → `cd app` → `npm run start:dev` — confirm Hello World at localhost:3000
+- [x] `npm install prisma@"^6.0.0" @prisma/client@"^6.0.0"`
+- [x] `npx prisma init` — fix generator to `prisma-client-js`, delete `prisma.config.ts` if generated
+- [x] Add `DATABASE_URL` to `.env`
+- [x] Define `Tenant` and `[Resource]` models in `schema.prisma` — Resource gets `tenantId Int` + `@relation`
+- [x] `npx prisma migrate dev --name init`
+- [x] `nest generate module prisma` → `nest generate service prisma`
+- [x] Write `PrismaService` — extends `PrismaClient`, implements `OnModuleInit` / `OnModuleDestroy`
+- [x] Add `@Global()` to `PrismaModule`, add `PrismaService` to `providers` and `exports`
+- [x] `nest generate resource [resources]` — REST API, generate CRUD entry points yes
+- [x] Inject `PrismaService` into `[Resource]Service` constructor
+- [x] Replace `findAll` stub — `prisma.[resource].findMany({ where: { tenantId } })`, hardcode `tenantId: 1` for now
+- [x] Create `ApiKeyGuard` — `implements CanActivate`, checks `request.headers['x-api-key']` .. this means to create the common/guards folder in the src directory with file api-key.guard.ts.
+- [x] Update the `.env` file with `API_KEY` and value as `secret` (hardcoded for now)
+- [x] Run the following terminal commands with the server started:
+      `curl http://localhost:3000/properties` - should return `{"message": "Unauthorized", "statusCode": 401}`
+      `curl -H "x-api-key: secret" http://localhost:3000/properties` - should return the empty [] of properties
+- \*\* [troubleshooting] \*\* if error occurs on starting the server, might need to run `npx prisma generate`
+- [x] Apply `@UseGuards(ApiKeyGuard)` to resource controller
+- [x] Create `LoggingInterceptor` — `implements NestInterceptor`, log method/url before, duration after via `tap()` .. this means to create the `interceptors` folder inside the `common` directory and create file `logging.interceptor.ts`.
+- [x] `app.useGlobalInterceptors(new LoggingInterceptor())` in `main.ts`
+- [x] Test: `curl -H "x-api-key: secret" http://localhost:3000/[resources]` returns empty array `[]`
+- [x] Insert a Tenant + Property row in psql, confirm list returns it, change hardcoded tenantId to 2, confirm `[]`
+  - From the app directory run `psql <your-db-name>` — db name is in `.env` → `DATABASE_URL` value
+  - Insert a Tenant: `INSERT INTO "Tenant" (name) VALUES ('Test Tenant');`
+  - Insert a Property (`updatedAt` has no SQL default — must be provided manually):
+    `INSERT INTO "Property" ("tenantId", name, address, city, state, "updatedAt") VALUES (1, 'Sunset Villas', '123 Main St', 'Austin', 'TX', NOW());`
+  - Enter `\q` to quit psql
+  - Run `curl -H "x-api-key: secret" http://localhost:3000/properties` → should return the property
+  - Change hardcoded `tenantId: 1` to `tenantId: 2` in `properties.service.ts` `findAll`
+  - Hit the endpoint again → `[]` (Tenant 2 exists but has no properties)
+  - Revert hardcode back to `1` before moving to Phase 2
 
 ---
 
@@ -90,7 +104,7 @@ Use this to rebuild the app from scratch. Each item is one action. When you get 
 - [ ] `createdb [appname]_e2e` in terminal
 - [ ] `DATABASE_URL=[test url] npx prisma migrate deploy`
 - [ ] Create `test/setup-env.ts` — `dotenv.config({ path: resolve(__dirname, '../.env.test') })`
-- [ ] Create `test/jest-e2e.json` — `setupFiles`, `moduleNameMapper`, `rootDir: "."` 
+- [ ] Create `test/jest-e2e.json` — `setupFiles`, `moduleNameMapper`, `rootDir: "."`
 - [ ] Write `[resource].service.spec.ts` — `mockPrismaService`, test all CRUD methods + `NotFoundException` cases
 - [ ] Write `auth.service.spec.ts` — mock `JwtService` with `mockReturnValue`, verify payload shape
 - [ ] Write `roles.guard.spec.ts` — `createMockContext` with `Reflect.defineMetadata`, test allow/deny/no-roles cases
@@ -124,15 +138,15 @@ Use this to rebuild the app from scratch. Each item is one action. When you get 
 
 ## Gotchas to Remember
 
-| Mistake | Fix |
-|---|---|
-| `SetMetadata('ROLES_KEY', roles)` | Must be `SetMetadata(ROLES_KEY, roles)` — constant not string |
-| `import { JwtPayload }` in decorated file | Must be `import type { JwtPayload }` |
-| Semicolon after decorator `@UseGuards(...);` | Remove the semicolon |
-| Swagger sends empty body | Use a DTO class with `@ApiProperty()`, not inline type |
-| `Property 'reset' does not exist` | Use `cacheManager.clear()` — renamed in cache-manager v5+ |
-| `@CacheInterceptor` on tenant-scoped routes | Disabled — cache key is URL only, leaks data across tenants |
-| `JwtModule.register()` with ConfigService | Use `registerAsync()` — `register()` runs before DI is ready |
-| FK constraint on resource create | Tenant row must exist first — insert one in psql |
-| Unit tests: `Cannot find module 'src/...'` | Add `moduleNameMapper` to jest config in `package.json` |
-| Controller calls service with wrong arg count | TypeScript squiggle = you forgot to add `user.tenantId` |
+| Mistake                                       | Fix                                                           |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| `SetMetadata('ROLES_KEY', roles)`             | Must be `SetMetadata(ROLES_KEY, roles)` — constant not string |
+| `import { JwtPayload }` in decorated file     | Must be `import type { JwtPayload }`                          |
+| Semicolon after decorator `@UseGuards(...);`  | Remove the semicolon                                          |
+| Swagger sends empty body                      | Use a DTO class with `@ApiProperty()`, not inline type        |
+| `Property 'reset' does not exist`             | Use `cacheManager.clear()` — renamed in cache-manager v5+     |
+| `@CacheInterceptor` on tenant-scoped routes   | Disabled — cache key is URL only, leaks data across tenants   |
+| `JwtModule.register()` with ConfigService     | Use `registerAsync()` — `register()` runs before DI is ready  |
+| FK constraint on resource create              | Tenant row must exist first — insert one in psql              |
+| Unit tests: `Cannot find module 'src/...'`    | Add `moduleNameMapper` to jest config in `package.json`       |
+| Controller calls service with wrong arg count | TypeScript squiggle = you forgot to add `user.tenantId`       |
