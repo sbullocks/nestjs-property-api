@@ -32,6 +32,9 @@ Do not read modules top to bottom like a book. Read the relevant section, then g
 | 11 | [Error Handling](./modules/11-error-handling.md) | NotFoundException, HttpException, tenant-safe deletes |
 | 12 | [Pagination & Filtering](./modules/12-pagination-filtering.md) | skip/take, dynamic where, Promise.all, N+1, EXPLAIN ANALYZE |
 | 13 | [Testing](./modules/13-testing.md) | Jest, unit tests, mocking, e2e tests, coverage |
+| 14 | [ConfigModule](./modules/14-config.md) | @nestjs/config, Joi validation, ConfigService, registerAsync |
+| 15 | [Rate Limiting](./modules/15-rate-limiting.md) | ThrottlerModule, APP_GUARD, @Throttle(), 429 responses |
+| 16 | [Caching](./modules/16-caching.md) | CacheModule, CacheInterceptor, cache invalidation, Redis |
 
 ---
 
@@ -44,6 +47,7 @@ Do not read modules top to bottom like a book. Read the relevant section, then g
 | 3 | [Phase 3 Build](./exercises/phase-3.md) | 3/5 | Validation → complete CRUD → error handling |
 | 4 | [Phase 4 Build](./exercises/phase-4.md) | 4/5 | Pagination → filtering → query optimization |
 | 5 | [Phase 5 Build](./exercises/phase-5.md) | 4/5 | Unit tests → mocking → e2e tests → coverage |
+| 6 | [Phase 6 Build](./exercises/phase-6.md) | 3/5 | ConfigModule → rate limiting → caching → cache invalidation |
 
 ---
 

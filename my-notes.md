@@ -835,6 +835,218 @@ If you only called login with a viewer role to test the 400 validation but didn'
 
 ---
 
+## Phase 5 — Testing with Jest
+
+### Unit Tests vs E2E Tests
+
+**Unit tests** — test one piece of code in isolation. Prisma, JwtService, and any other dependencies are replaced with mocks so the test only verifies the logic in that one unit. No database connection needed. Fast.
+
+**E2e tests** — boot the full NestJS application and send real HTTP requests. Tests the entire stack from route → guard → pipe → controller → service → database. Slower but catches integration issues unit tests miss.
+
+Both are needed. Unit tests catch logic bugs fast. E2e tests catch wiring bugs (wrong module imports, missing pipes, guard misconfiguration) that unit tests never see.
+
+---
+
+### Jest Anatomy
+
+```ts
+describe('PropertiesService', () => {    // groups related tests
+  let service: PropertiesService;
+
+  beforeEach(async () => { ... });       // runs before EACH test — fresh setup every time
+  beforeAll(async () => { ... });        // runs ONCE before all tests — used in e2e
+  afterAll(async () => { ... });         // runs ONCE after all tests — cleanup
+
+  it('should return properties', async () => {  // one test case
+    expect(result.data).toHaveLength(1);         // assertion
+  });
+});
+```
+
+`beforeEach` resets state so tests don't share data. One test's side effects don't leak into the next.
+
+---
+
+### Mocking — mockResolvedValue vs mockReturnValue
+
+```ts
+jest.fn().mockResolvedValue(data)   // async function — returns a Promise that resolves to data
+jest.fn().mockReturnValue(data)     // sync function — returns data directly
+```
+
+`jwtService.sign()` is synchronous → `mockReturnValue`.
+`prisma.property.findMany()` is async → `mockResolvedValue`.
+
+`jest.clearAllMocks()` in `beforeEach` resets call history and return values between tests. Without it, a mock called in test 1 would show as called when test 2 checks `toHaveBeenCalledWith`.
+
+---
+
+### Key Assertions
+
+```ts
+expect(result).toHaveProperty('access_token')         // object has this key
+expect(result.data).toHaveLength(1)                   // array length
+expect(result).toEqual(mockProperty)                  // deep equality
+expect(fn).toHaveBeenCalledWith({ sub: 1, tenantId: 1, role: 'admin' })  // exact args
+expect(fn).toHaveBeenCalledTimes(1)                   // called exactly once
+expect(fn).not.toHaveBeenCalled()                     // never called
+
+// For async functions that should throw:
+await expect(service.findOne(999, 1)).rejects.toThrow(NotFoundException)
+```
+
+`not.toHaveBeenCalled()` on update/delete after findFirst returns null proves the guard clause stopped execution before the mutation ran. Testing what DIDN'T happen is as important as testing what did.
+
+`expect.objectContaining({ skip: 10, take: 5 })` — partial match. Only asserts the fields you care about, ignores the rest of the object.
+
+---
+
+### Mocking Prisma
+
+Prisma talks to a real database — unit tests don't want that. Replace it with a mock object that has the same shape:
+
+```ts
+const mockPrismaService = {
+  property: {
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+    count: jest.fn(),
+  },
+};
+```
+
+Then inject it instead of the real service in the test module:
+```ts
+{ provide: PrismaService, useValue: mockPrismaService }
+```
+
+Each test tells the mock what to return:
+```ts
+mockPrismaService.property.findFirst.mockResolvedValue(null);  // simulate not found
+mockPrismaService.property.findMany.mockResolvedValue([mockProperty]);  // simulate found
+```
+
+---
+
+### Testing Guards — createMockContext
+
+Guards need an `ExecutionContext` to read metadata and the request. Build a fake one in tests:
+
+```ts
+const createMockContext = (userRole: string, requiredRoles?: Role[]): ExecutionContext => {
+  const handler = jest.fn();
+  if (requiredRoles) {
+    Reflect.defineMetadata(ROLES_KEY, requiredRoles, handler);  // simulates @Roles() decorator
+  }
+  return {
+    getHandler: () => handler,
+    getClass: () => ({}),
+    switchToHttp: () => ({
+      getRequest: () => ({ user: { sub: 1, tenantId: 1, role: userRole } }),
+    }),
+  } as unknown as ExecutionContext;
+};
+```
+
+`Reflect.defineMetadata` attaches metadata directly to the handler function — the same thing `@Roles()` decorator does at runtime. `RolesGuard` uses `Reflector` to read it.
+
+Guards with no async dependencies don't need `Test.createTestingModule` — instantiate directly:
+```ts
+reflector = new Reflector();
+guard = new RolesGuard(reflector);
+```
+
+**Important finding from tests:** RBAC is explicit, not hierarchical. If a route only allows `Role.Viewer`, an Admin is rejected — the guard uses `requiredRoles.some()` which checks exact role match, not a hierarchy.
+
+---
+
+### Controller Tests — Only Test Delegation
+
+Controllers just route and extract — they don't contain logic. Controller tests verify the controller calls the service with the right arguments:
+
+```ts
+it('should call service.create with DTO and tenantId from JWT', async () => {
+  await controller.create(mockUser, dto);
+  expect(mockPropertiesService.create).toHaveBeenCalledWith(dto, 1);
+});
+```
+
+Don't test the service logic in the controller test — that's already covered in the service spec. Don't test guards in controller tests — that's covered in the guard spec and e2e tests.
+
+---
+
+### E2E Test Structure
+
+```ts
+beforeAll(async () => {
+  // Boot the app ONCE — not before every test (too slow)
+  const moduleFixture = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile();
+
+  app = moduleFixture.createNestApplication();
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  await app.init();
+
+  // Pull PrismaService from the running app's DI container for setup/teardown
+  prisma = app.get(PrismaService);
+
+  // Clean test database before suite runs
+  await prisma.property.deleteMany();
+  await prisma.tenant.deleteMany();
+
+  // Seed a tenant (required for FK constraint) and get tokens
+  const tenant = await prisma.tenant.create({ data: { name: 'E2E Test Tenant' } });
+  tenantId = tenant.id;
+});
+
+afterAll(async () => {
+  await prisma.property.deleteMany();
+  await prisma.tenant.deleteMany();
+  await app.close();
+});
+```
+
+`beforeAll` not `beforeEach` — booting NestJS is slow, do it once. Tests share the running app and share state. Order matters — if a test creates a property and stores the id, later tests use that id.
+
+`app.get(PrismaService)` — pulls any provider out of the running app by class. Used to set up and tear down test data directly without going through HTTP.
+
+---
+
+### E2E Setup Files
+
+Three files needed:
+- `.env.test` — separate database so tests don't touch real data
+- `test/setup-env.ts` — loads `.env.test` before any module boots
+- `test/jest-e2e.json` — e2e jest config with `setupFiles` and `moduleNameMapper`
+
+`moduleNameMapper` is needed in both unit and e2e configs to resolve `src/` path aliases:
+```json
+"moduleNameMapper": { "^src/(.*)$": "<rootDir>/$1" }
+```
+
+Without this, any file that uses `import { X } from 'src/...'` fails with "Cannot find module" in tests.
+
+---
+
+### Coverage Report
+
+```bash
+npm run test:cov
+```
+
+Lines in red = untested. Key targets:
+- Service files → aim for 80%+
+- Guards → should be close to 100% (small, testable units)
+- Controllers → lower coverage is fine — logic lives in services
+
+`properties.service.ts` reached ~97% — the untested lines were the old commented-out stubs, not real code paths.
+
+---
+
 ## Phase 4 — Pagination, Filtering & Query Optimization
 
 ### Goal of Phase 4
