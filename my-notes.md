@@ -781,6 +781,18 @@ The JWT is server-signed — a malicious user can't forge what's inside it. Anyt
 
 ### Complete CRUD Service Patterns
 
+**NestJS method → Prisma method mapping:**
+
+| NestJS method | Prisma method | Why |
+|---|---|---|
+| `findAll` | `findMany` | returns multiple rows |
+| `findOne` | `findFirst` (**NOT** `findUnique`) | `findUnique` only works on `@unique` fields (just `id`). `findFirst` lets you filter on BOTH `id` AND `tenantId` simultaneously — that second condition is the ownership/security check. `findUnique({ where: { id, tenantId } })` throws a TypeScript error |
+| `create` | `create` | direct match — spread DTO + attach tenantId |
+| `update` | `findFirst` first → then `update` | must verify ownership before mutating — if the record doesn't belong to this tenant, throw NotFoundException |
+| `remove` | `findFirst` first → then `delete` | same pattern — verify ownership before deleting |
+
+**The rule for `update` and `remove`:** always `findFirst` with `{ id, tenantId }` before the mutation. If null → throw `NotFoundException`. This means tenant 2 can't update or delete tenant 1's records even if they know the id — both cases return 404 (not 403), so the attacker can't even confirm the record exists.
+
 **findOne — verify ownership before returning:**
 
 ```ts

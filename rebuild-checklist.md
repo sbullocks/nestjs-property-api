@@ -109,17 +109,50 @@ Use this to rebuild the app from scratch. Each item is one action. When you get 
 
 ## Phase 3 — Validation, Complete CRUD, Error Handling
 
-- [ ] `npm install class-validator class-transformer`
-- [ ] `app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }))` in `main.ts`
-- [ ] Add `@ApiProperty` + `@IsString` + `@IsNotEmpty` to all `CreateDto` fields, `@Length(2,2)` on any state/code fields
-- [ ] Add `@IsNumber` + `@IsEnum(Role)` to `LoginDto`
-- [ ] Replace `create()` stub — `prisma.[resource].create({ data: { ...dto, tenantId } })` — **tenantId from JWT, never body**
-- [ ] Replace `findOne()` stub — `findFirst({ where: { id, tenantId } })` → `NotFoundException` if null
-- [ ] Replace `update()` stub — `findFirst` → `NotFoundException` → `prisma.[resource].update({ where: { id }, data: dto })`
-- [ ] Replace `remove()` stub — `findFirst` → `NotFoundException` → `prisma.[resource].delete({ where: { id } })`
-- [ ] Verify all controller methods pass `user.tenantId` — TypeScript squiggle = argument count mismatch
-- [ ] Ensure Tenant row exists in DB before testing create (FK constraint)
-- [ ] Test: empty body → 400, valid body → 201, wrong tenantId record → 404, viewer delete → 403
+- [x] `npm install class-validator class-transformer` .. note: might have already installed above to avoid errors in the files where I imported them. no harm to run again.
+- [x] `app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }))` in `main.ts` .. NestJS docs regarding built-in ValidationPipe. This page reviews the different settings that can be configured into the configuration object passed to the pipe..
+      example: whitelist, transform, forbidNonWhitelisted..
+  - ⚠️ HEADS UP: testing forbidNonWhitelisted will NOT work yet at this step! The next step (adding @IsString/@IsNotEmpty decorators to CreatePropertyDto) is what makes it work. Don't panic if you test early and ALL fields get rejected.
+  - WHY: `whitelist` only treats a field as "valid" if it has a class-validator decorator. Right now the DTO is an empty stub (`export class CreatePropertyDto {}`), so EVERY field (name, address, etc.) is seen as unknown.
+    - forbidNonWhitelisted: false → strips all fields → empty {} → stub returns 201 (looks like nothing validated, because nothing did)
+    - forbidNonWhitelisted: true → rejects all fields → 400 listing every field as "should not exist"
+  - To test PROPERLY: first populate CreatePropertyDto with decorated fields (next step), THEN send a POST /properties with an extra junk field like "hackerField" → it should 400 with only "property hackerField should not exist"
+- [x] Add `@ApiProperty` + `@IsString` + `@IsNotEmpty` to all `CreateDto` fields, `@Length(2,2)` on any state/code fields
+  - **Reference `schema.prisma` to know which fields belong in the DTO** — it's the source of truth for what columns exist
+  - Rule: schema fields MINUS auto-generated (`id`, `createdAt`, `updatedAt`) MINUS server-derived (`tenantId` from JWT, relation fields like `tenant Tenant`) = DTO fields
+  - For `CreatePropertyDto`: `name`, `address`, `city`, `state` — those are the only four fields the client actually sends
+  - Fields are called **properties** (not params) — same as TypeScript class properties
+  - `@Length(2,2)` on `state` — enforces exactly 2 characters (e.g. "TX", "CA")
+- [x] Add `@IsNumber` + `@IsEnum(Role)` to `LoginDto` .. NOTE: might of already completed this in Phase 2. If so, move on.
+- [x] Replace `create()` stub — `prisma.[resource].create({ data: { ...dto, tenantId } })` — **tenantId from JWT, never body**
+- [x] Replace `findOne()` stub — `findFirst({ where: { id, tenantId } })` → `NotFoundException` if null
+  - Must be `async` + `await` the Prisma call — without `await`, you get a Promise (always truthy), null check never triggers
+  - `throw` before `return` — check first, return only if it passed
+  - Pattern: `const x = await prisma.x.findFirst({ where: { id, tenantId } })` → `if (!x) throw new NotFoundException(...)` → `return x`
+- [x] Replace `update()` stub — `findFirst` → `NotFoundException` → `prisma.[resource].update({ where: { id }, data: dto })`
+  - Same async/await + null check pattern as findOne, then mutate: `prisma.[resource].update({ where: { id }, data: dto })`
+- [x] Replace `remove()` stub — `findFirst` → `NotFoundException` → `prisma.[resource].delete({ where: { id } })`
+  - Same async/await + null check pattern as findOne, then mutate: `prisma.[resource].delete({ where: { id } })`
+  - **NestJS method → Prisma method mapping (reference for all stubs above):**
+    - `findAll` → `findMany` — returns multiple rows
+    - `findOne` → `findFirst` (**NOT `findUnique`**) — `findUnique` only works on `@unique` fields (just `id`). `findFirst` lets you filter on BOTH `id` AND `tenantId` — that's the ownership security check. `findUnique({ where: { id, tenantId } })` throws a TypeScript error
+    - `create` → `create` — spread DTO + attach tenantId: `{ data: { ...dto, tenantId } }`
+    - `update` → `findFirst` first → then `update` — verify ownership before mutating
+    - `remove` → `findFirst` first → then `delete` — verify ownership before deleting
+  - **The ownership pattern for update/remove:** `findFirst({ where: { id, tenantId } })` → if null throw `NotFoundException` → then mutate. Tenant 2 can't update/delete tenant 1's records — both cases return 404 (not 403), so the attacker can't even confirm the record exists
+- [x] Verify all controller methods pass `user.tenantId` — TypeScript squiggle = argument count mismatch .. NOTE: completed in Phase 2.. just verifying tenantId is being passed from the JwtPayload and not the user providing it.
+- [x] Ensure Tenant row exists in DB before testing create (FK constraint)
+  - Verify in Prisma Studio (`npx prisma studio`) or psql that a Tenant row exists before hitting `POST /properties`
+  - If no Tenant row exists and you try to create a Property, Postgres throws a FK constraint error — the Property's `tenantId` must reference a real Tenant row
+  - You CAN get a JWT token for a non-existent `tenantId` (login doesn't verify the tenant exists — known shortcut in this design). But `POST /properties` will fail with a FK error if no matching Tenant row exists. `GET /properties` just returns `[]`
+  - In a real app with email/password auth, this gap doesn't exist — you can only get a token for a user that already exists in the DB, and their `tenantId` comes from their DB record
+  - Confirm multi-tenancy works: log in as tenant 2, `GET /properties` → `[]` (can only see your own data)
+- [x] Test: empty body → 400, valid body → 201, wrong tenantId record → 404, viewer delete → 403
+  - curl requires `Authorization: Bearer <token>` — the word `Bearer` + a space is required. Without it you get 401
+  - If GET returns `[]` unexpectedly and code looks right, add `console.log('tenantId:', tenantId)` in the service to confirm the correct value is arriving before assuming a code bug
+  - **[troubleshooting] If data looks wrong — check your DB connection first.** TablePlus/Prisma Studio may be pointed at a different database (e.g. `hpos_test_db` instead of `hpos_v2_db`). Always verify the connection string matches your `.env` `DATABASE_URL` before debugging code
+  - To test "wrong tenantId → 404": log in as tenant 2, hit `GET /properties/<id-that-belongs-to-tenant-1>` → expect 404. Tenant 2 can't see tenant 1's record even if they know the exact id
+  - FK error on `POST /properties`: means the Tenant row for that `tenantId` doesn't exist yet — insert the Tenant row in psql first
 
 ---
 
