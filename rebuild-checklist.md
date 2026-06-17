@@ -86,7 +86,7 @@ Use this to rebuild the app from scratch. Each item is one action. When you get 
   - **The decorator alone does nothing** — must actually PASS `user.tenantId` into each service call (e.g. `findAll(user.tenantId)`, `create(dto, user.tenantId)`). Remove all hardcoded values like `findAll(1)`
   - Controller param ORDER doesn't matter (Nest injects by decorator). But the service CALL arguments are positional — must match the service signature order
   - If the service requires `tenantId` and you forget to pass it, TypeScript errors "Expected 2 arguments, got 1" — that red squiggle is your safety net
-- [ ] Swagger: `DocumentBuilder` in `main.ts` before `app.listen()`, `@ApiTags`, `@ApiBearerAuth`, `@ApiOperation`, `@ApiResponse` on controller
+- [x] Swagger: `DocumentBuilder` in `main.ts` before `app.listen()`, `@ApiTags`, `@ApiBearerAuth`, `@ApiOperation`, `@ApiResponse` on controller
   - **This step edits TWO places: `main.ts` AND every controller. Easy to do one and forget the other.**
   - **main.ts:** `DocumentBuilder` with `.setTitle()`, `.setDescription()`, `.setVersion()`, and `.addBearerAuth()` → `.build()`, then `SwaggerModule.setup('api', app, document)` before `app.listen()`
     - `.addBearerAuth()` is REQUIRED — it creates the "Authorize" button in Swagger UI so you can paste your JWT. Without it you can't test protected routes
