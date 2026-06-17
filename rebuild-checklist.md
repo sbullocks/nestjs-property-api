@@ -158,15 +158,54 @@ Use this to rebuild the app from scratch. Each item is one action. When you get 
 
 ## Phase 4 — Pagination, Filtering, Query Optimization
 
-- [ ] Create `query-[resource].dto.ts` — `@IsOptional @Type(() => Number) @IsInt` on `page`/`limit`, `@IsOptional @IsString` on filter fields
-- [ ] Update `findAll` service — build `Prisma.[Resource]WhereInput` dynamically, add filters with `if` checks
-- [ ] Calculate `skip = (page - 1) * limit`
-- [ ] `Promise.all([findMany({ where, skip, take: limit }), count({ where })])` — parallel queries
-- [ ] Return `{ data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } }`
-- [ ] Update controller `findAll` — add `@Query() query: QueryDto`
-- [ ] Test: `?page=1&limit=2`, `?city=Austin`, `?search=sunset` — confirm filtering and pagination work
+- [x] Create `query-[resource].dto.ts` — `@IsOptional @Type(() => Number) @IsInt` on `page`/`limit`, `@IsOptional @IsString` on filter fields
+  - Manually create this file — no CLI command generates it
+  - **Where fields come from:** `page`/`limit` = standard REST pagination (always include on list endpoints); filter fields = schema columns worth searching by cross-referenced with `CreateDto` (if it can be created with a value, it can likely be searched by it)
+  - `@IsOptional` on every field — query params are never required
+  - `@Type(() => Number)` on `page`/`limit` — query params always arrive as strings from the URL (`?page=1`). Tells class-transformer to convert them to numbers. Requires `transform: true` in `ValidationPipe` (already set in `main.ts`)
+  - `@IsInt` on `page`/`limit` — validates after the type conversion that it's a whole number
+  - Filter fields (`city`, `state`, `search`) use `@IsOptional @IsString` only — they stay as strings
+  - Reference `app/src/properties/dto/query-property.dto.ts` for the exact shape if needed
+- [x] Update `findAll` service — build `Prisma.[Resource]WhereInput` dynamically, add filters with `if` checks
+  - Add `query: QueryPropertyDto` as a second param to `findAll` — service AND controller must both be updated
+  - **Remove the explicit return type** (`Promise<Property[]>`) — you're returning `{ data, meta }` not a plain array. Let TypeScript infer it
+  - Start `where` with `{ tenantId }` then add filters conditionally — only add if the value was sent:
+    `if (query.city) where.city = query.city;`
+    `if (query.search) where.name = { contains: query.search, mode: 'insensitive' };`
+  - **Common mistake:** building the dynamic `where` object but passing `{ tenantId }` directly to `findMany` instead of `where` — silently ignores all filter work
+- [x] Calculate `skip = (page - 1) * limit`
+  - `page ?? 1` and `limit ?? 10` — default values if not sent in request
+  - `skip` = records to jump over. Page 1 → skip 0, Page 2 → skip 10, Page 3 → skip 20
+  - `take` = how many to return (same value as `limit`)
+- [x] `Promise.all([findMany({ where, skip, take: limit }), count({ where })])` — parallel queries
+  - Runs BOTH queries simultaneously instead of sequentially — one round trip for data + count
+  - `const [data, total] = await Promise.all([...])` — destructure both results
+  - Both queries use the same `where` so the count reflects filtered results, not all rows
+- [x] Return `{ data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } }`
+  - `Math.ceil` rounds up — 11 results / 10 per page = 2 pages (not 1.1)
+- [x] Update controller `findAll` — add `@Query() query: QueryDto`
+  - Add `@Query() query: QueryPropertyDto` as a param and pass it to the service: `findAll(user.tenantId, query)`
+  - **Swagger will still show "No parameters"** even with `@ApiPropertyOptional` on the DTO — query params require explicit `@ApiQuery` decorators on the controller route to appear in the UI:
+    ```ts
+    @ApiQuery({ name: 'page', required: false, example: 1 })
+    @ApiQuery({ name: 'limit', required: false, example: 10 })
+    @ApiQuery({ name: 'city', required: false, example: 'Austin' })
+    @ApiQuery({ name: 'state', required: false, example: 'TX' })
+    @ApiQuery({ name: 'search', required: false, example: 'Sunset' })
+    ```
+  - Add `ApiQuery` to the `@nestjs/swagger` import line
+  - `@ApiPropertyOptional` on the DTO controls validation/typing; `@ApiQuery` on the controller controls Swagger UI display — both are needed for the full picture
+- [x] Test: `?page=1&limit=2`, `?city=Austin`, `?search=sunset` — confirm filtering and pagination work
 - [ ] In psql: `EXPLAIN ANALYZE SELECT * FROM "[Resource]" WHERE "tenantId" = 1 AND city = 'Austin';`
-- [ ] Add index: `CREATE INDEX "[Resource]_city_idx" ON "[Resource]"(city);` — re-run EXPLAIN ANALYZE
+  - Run from psql: `EXPLAIN ANALYZE SELECT * FROM "Property" WHERE "tenantId" = 1 AND city = 'Austin';`
+  - `cost=0.00..X` — Postgres's ESTIMATE of work units (not milliseconds). Lower is cheaper. First number = startup cost, second = total cost
+  - `actual time=X..Y` — REAL execution time in milliseconds. The number that actually matters
+  - `Seq Scan` = scans every row in the table. Expected on small tables — Postgres planner chooses it deliberately when the table is tiny
+- [x] Add index: `CREATE INDEX "[Resource]_city_idx" ON "[Resource]"(city);` — re-run EXPLAIN ANALYZE
+  - After adding the index, re-run the same EXPLAIN ANALYZE and compare cost + actual time
+  - **With small data (< ~1000 rows), Postgres will STILL show Seq Scan** — the planner knows scanning 3 rows is faster than using an index. This is correct behavior, not a bug
+  - The index pays off at scale (thousands+ rows) — that's when the planner switches to `Index Scan` automatically
+  - Planning time may increase slightly after adding index — planner now considers it as an option. The execution time savings at scale far outweigh this overhead
 
 ---
 

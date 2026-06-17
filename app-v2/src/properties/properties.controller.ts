@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } from '@nestjs/common';
   import { PropertiesService } from './properties.service';
   import { CreatePropertyDto } from './dto/create-property.dto';
   import { UpdatePropertyDto } from './dto/update-property.dto';
@@ -8,7 +8,8 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@n
   import { Role } from 'src/common/enums/role.enum';
   import { CurrentUser } from 'src/common/decorators/current-user.decorator';
   import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
-  import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+  import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { QueryPropertyDto } from './dto/query-property.dto';
 
 // @UseGuards(ApiKeyGuard)
 @ApiTags('properties')
@@ -29,9 +30,14 @@ export class PropertiesController {
   }
   @ApiOperation({ summary: 'Get all properties for the current tenant' })
   @ApiResponse({ status: 200, description: 'Returns array of properties' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  @ApiQuery({ name: 'city', required: false, example: 'Austin' })
+  @ApiQuery({ name: 'state', required: false, example: 'TX' })
+  @ApiQuery({ name: 'search', required: false, example: 'Sunset' })
   @Get()
-  findAll(@CurrentUser() user: JwtPayload) {
-    return this.propertiesService.findAll(user.tenantId);
+  findAll(@CurrentUser() user: JwtPayload, @Query() query: QueryPropertyDto) {
+    return this.propertiesService.findAll(user.tenantId, query);
   }
 
   @Get(':id')
