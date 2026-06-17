@@ -1,24 +1,28 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject } from '@nestjs/common';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Property, Prisma } from 'generated/prisma';
 import { QueryPropertyDto } from './dto/query-property.dto';
+import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager';
 
 @Injectable()
 export class PropertiesService {
   constructor(
   private readonly prisma: PrismaService,
+  @Inject(CACHE_MANAGER) private cacheManager: Cache,
 ) {}
 
-  create(createPropertyDto: CreatePropertyDto, tenantId: number) {
+  async create(createPropertyDto: CreatePropertyDto, tenantId: number) {
     // return 'This action adds a new property';
-    return this.prisma.property.create({
+    const property = await this.prisma.property.create({
       data: {
         ...createPropertyDto, // copies name, address, city, state from the DTO
         tenantId, // always from the JWT - not from the request body. (this get handled in the controller using the user.tenantId from the JwtPayload)
       },
     });
+    await this.cacheManager.clear()
+    return property;
   }
 
   // findAll() {
@@ -100,10 +104,14 @@ export class PropertiesService {
       throw new NotFoundException(`Property ${id} not found`)
     }
 
-    return this.prisma.property.update({
+    const update = await this.prisma.property.update({
       where: { id },
       data: updatePropertyDto
     });
+
+    await this.cacheManager.clear()
+
+    return  update;
   }
 
   // remove(id: number, tenantId: number) {
@@ -120,8 +128,12 @@ export class PropertiesService {
       throw new NotFoundException(`Property ${id} not found`)
     }
 
-    return this.prisma.property.delete({
-      where: { id }
+    const deleted = await this.prisma.property.delete({
+      where: { id}
     })
+
+    await this.cacheManager.clear()
+
+    return deleted;
   }
 }

@@ -229,22 +229,65 @@ Use this to rebuild the app from scratch. Each item is one action. When you get 
 
 ## Phase 6 — ConfigModule, Rate Limiting, Caching
 
-- [ ] `npm install @nestjs/config joi @nestjs/throttler @nestjs/cache-manager cache-manager`
-- [ ] `ConfigModule.forRoot({ isGlobal: true, validationSchema: Joi.object({...}) })` in `AppModule`
-- [ ] Test startup validation: remove `JWT_SECRET` from `.env` → app should refuse to start
-- [ ] Update `JwtStrategy` — inject `ConfigService`, use `configService.get<string>('JWT_SECRET')`
-- [ ] Update `JwtModule` — switch from `register()` to `registerAsync({ imports, inject, useFactory })`
-- [ ] `ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }])` in `AppModule` imports
-- [ ] `{ provide: APP_GUARD, useClass: ThrottlerGuard }` in `AppModule` providers
-- [ ] Add `@Throttle({ default: { ttl: 60000, limit: 5 } })` to `POST /auth/login`
-- [ ] Test 429: hit login 7 times in a loop, expect 5x 201 then 2x 429
-- [ ] `CacheModule.register({ isGlobal: true, ttl: 30000, max: 100 })` in `AppModule` imports
-- [ ] Inject `@Inject(CACHE_MANAGER) private cacheManager: Cache` into resource service
-- [ ] Call `await this.cacheManager.clear()` after `create`, `update`, and `remove`
-- [ ] **DO NOT** add `@UseInterceptors(CacheInterceptor)` to tenant-scoped routes — URL-only cache key leaks data across tenants
-- [ ] Add `getHealth()` to `AppService` — returns `{ status: 'ok', timestamp: new Date().toISOString() }`
-- [ ] Add `@SkipThrottle() @Get('health') getHealth()` to `AppController`
-- [ ] Test multi-tenancy: insert second tenant in psql, get TOKEN1 + TOKEN2, confirm each only sees their own data
+- [x] `npm install @nestjs/config joi @nestjs/throttler @nestjs/cache-manager cache-manager`
+- [x] `ConfigModule.forRoot({ isGlobal: true, validationSchema: Joi.object({...}) })` in `AppModule`
+- [x] Test startup validation: remove `JWT_SECRET` from `.env` → app should refuse to start
+- [x] Update `JwtStrategy` — inject `ConfigService`, use `configService.getOrThrow<string>('JWT_SECRET')`
+  - Add `ConfigService` to the constructor: `constructor(private configService: ConfigService)`
+  - Update `secretOrKey` in `super()`: `secretOrKey: configService.getOrThrow<string>('JWT_SECRET')`
+  - **Use `getOrThrow` NOT `get`** — `configService.get<string>()` returns `string | undefined`, causing TypeScript squiggles because `secretOrKey` expects a plain `string`. `getOrThrow` returns `string` (throws if missing) — types align and squiggles disappear
+  - `getOrThrow` will never actually throw at runtime since Joi already validated `JWT_SECRET` exists at startup — but TypeScript doesn't know that, so `getOrThrow` is needed for type safety
+  - Add `ConfigService` to imports at the top: `import { ConfigService } from '@nestjs/config'`
+  - Remove the `process.env.JWT_SECRET!` line (comment it out for reference)
+- [x] Update `JwtModule` — switch from `register()` to `registerAsync({ imports, inject, useFactory })`
+  - This change is in `src/auth/auth.module.ts` — replace `JwtModule.register({...})` with `JwtModule.registerAsync({...})`
+  - **Why registerAsync:** `register()` is synchronous and runs before DI is ready — it can't inject `ConfigService`. `registerAsync` waits for DI to resolve, then calls `useFactory` with the injected services
+  - Shape:
+    ```ts
+    JwtModule.registerAsync({
+      imports: [ConfigModule],       // make ConfigModule available in this context
+      inject: [ConfigService],       // inject ConfigService into useFactory
+      useFactory: (config: ConfigService) => ({
+        secret: config.getOrThrow<string>('JWT_SECRET'),
+        signOptions: { expiresIn: '7d' },
+      }),
+    }),
+    ```
+  - `imports` = which modules to pull in; `inject` = which services to pass to `useFactory`; `useFactory` = a function that receives those services and returns the config object
+  - Add `ConfigModule` to the `imports` array at the top of the file: `import { ConfigModule } from '@nestjs/config'`
+- [x] `ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }])` in `AppModule` imports
+- [x] `{ provide: APP_GUARD, useClass: ThrottlerGuard }` in `AppModule` providers
+- [x] Add `@Throttle({ default: { ttl: 60000, limit: 5 } })` to `POST /auth/login` .. Note: this gets added to the `auth.controller` before the `@Post('login')` decorator.
+- [x] Test 429: hit login 7 times in a loop, expect 5x 201 then 2x 429
+- [x] `CacheModule.register({ isGlobal: true, ttl: 30000, max: 100 })` in `AppModule` imports
+- [x] Inject `@Inject(CACHE_MANAGER) private cacheManager: Cache` into resource service
+  - In `properties.service.ts` constructor: `@Inject(CACHE_MANAGER) private cacheManager: Cache`
+  - Import: `import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager'` — both `Cache` type AND `CACHE_MANAGER` token come from `@nestjs/cache-manager` (not split between packages)
+  - Also import `Inject` from `@nestjs/common`
+  - `@Inject(CACHE_MANAGER)` decorator is required — cache manager can't be injected by type alone like a regular service. Without it Nest doesn't know which provider to inject
+- [x] Call `await this.cacheManager.clear()` after `create`, `update`, and `remove`
+  - Pattern is always: **await Prisma call → store in variable → clear cache → return variable**
+  - `clear()` must come AFTER the DB write succeeds — don't clear before the write or you'd clear cache even if the DB call fails
+  - `clear()` must come BEFORE `return` — it's unreachable after a return statement
+  - All three methods (`create`, `update`, `remove`) need the same pattern:
+    ```ts
+    const result = await this.prisma.property.[method]({...});
+    await this.cacheManager.clear();
+    return result;
+    ```
+  - Don't forget `async` on each method signature since you're using `await`
+- [x] **DO NOT** add `@UseInterceptors(CacheInterceptor)` to tenant-scoped routes — URL-only cache key leaks data across tenants
+- [x] Add `getHealth()` to `AppService` — returns `{ status: 'ok', timestamp: new Date().toISOString() }`
+- [x] Add `@SkipThrottle() @Get('health') getHealth()` to `AppController`
+- [x] Test multi-tenancy: insert second tenant in psql, get TOKEN1 + TOKEN2, confirm each only sees their own data
+  - Insert second tenant: `psql hpos_v2_db` → `INSERT INTO "Tenant" (name) VALUES ('Company B');` → `\q`
+  - No migration needed — inserting a row adds data to an existing table, migrations only change structure
+  - Confirm row exists: `SELECT * FROM "Tenant";` in psql OR `npx prisma studio` → Tenant table
+  - Login twice in Swagger — `tenantId: 1` and `tenantId: 2` — copy both tokens
+  - Authorize with TOKEN1 → `GET /properties` → only tenant 1's properties
+  - Authorize with TOKEN2 → `GET /properties` → only tenant 2's properties (or `[]` if none created yet)
+  - `POST /properties` with TOKEN2 → creates a property under tenant 2 → `GET /properties` confirms isolation
+  - Try `GET /properties/<tenant1-id>` with TOKEN2 → expect 404 (ownership check works)
 
 ---
 
