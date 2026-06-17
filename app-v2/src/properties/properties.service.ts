@@ -9,7 +9,7 @@ export class PropertiesService {
   constructor(
   private readonly prisma: PrismaService,
 ) {}
-  create(createPropertyDto: CreatePropertyDto) {
+  create(createPropertyDto: CreatePropertyDto, tenantId: number) {
     return 'This action adds a new property';
   }
 
@@ -18,27 +18,27 @@ export class PropertiesService {
   // }
 
 
-  async findAll(tenantId: number): Promise<Property[]> {
-    return this.prisma.property.findMany({
-      where: {tenantId: 1}
-    })
-  }
-
   // async findAll(tenantId: number): Promise<Property[]> {
   //   return this.prisma.property.findMany({
-  //     where: { tenantId },
-  //   });
-  // }
+  //     where: {tenantId: 1}
+  //   })
+  // } // as of Phase 2 insturction of `Update all service methods to accept tenantId parameter — replace hardcoded value`.. meaning replace the where: {tenantId: 1} < hardcoded with the actual tenantId.. where: {tenantId: tenantId}
 
-  findOne(id: number) {
+  async findAll(tenantId: number): Promise<Property[]> {
+    return this.prisma.property.findMany({
+      where: { tenantId },
+    });
+  }
+
+  findOne(id: number, tenantId: number) {
     return `This action returns a #${id} property`;
   }
 
-  update(id: number, updatePropertyDto: UpdatePropertyDto) {
+  update(id: number, updatePropertyDto: UpdatePropertyDto, tenantId: number) {
     return `This action updates a #${id} property`;
   }
 
-  remove(id: number) {
+  remove(id: number, tenantId: number) {
     return `This action removes a #${id} property`;
   }
 }

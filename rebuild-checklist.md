@@ -43,27 +43,67 @@ Use this to rebuild the app from scratch. Each item is one action. When you get 
 
 ## Phase 2 — JWT Auth, RBAC, Swagger
 
-- [ ] `npm install @nestjs/jwt @nestjs/passport passport passport-jwt @nestjs/swagger`
-- [ ] `npm install --save-dev @types/passport-jwt`
-- [ ] Add `JWT_SECRET=your-super-secret-key-change-in-production` to `.env`
-- [ ] Create `src/common/enums/role.enum.ts` — `Admin`, `TenantUser`, `Viewer`
-- [ ] Create `src/auth/interfaces/jwt-payload.interface.ts` — `{ sub, tenantId, role }`
-- [ ] `nest generate module auth` → `nest generate service auth` → `nest generate controller auth`
-- [ ] Create `src/auth/dto/login.dto.ts` — `@ApiProperty` + `@IsNumber` on tenantId, `@IsString @IsNotEmpty @IsEnum(Role)` on role
-- [ ] Write `AuthService.login()` — signs JWT with `{ sub: tenantId, tenantId, role }`
-- [ ] Write `AuthController` — `POST /auth/login` using `LoginDto`, `@ApiTags('auth')`
-- [ ] Create `src/auth/jwt.strategy.ts` — extends `PassportStrategy(Strategy)`, `process.env.JWT_SECRET!`, `validate()` returns payload
-- [ ] Create `src/common/guards/jwt-auth.guard.ts` — extends `AuthGuard('jwt')`
-- [ ] Create `src/common/decorators/roles.decorator.ts` — export `ROLES_KEY = 'roles'`, `@Roles()` uses `SetMetadata(ROLES_KEY, roles)` — **NOT the string `'ROLES_KEY'`**
-- [ ] Create `src/common/guards/roles.guard.ts` — inject `Reflector`, `getAllAndOverride(ROLES_KEY, [...])`, `requiredRoles.some()`
-- [ ] Create `src/common/decorators/current-user.decorator.ts` — `createParamDecorator`, returns `request.user`
-- [ ] Update `AuthModule` — import `PassportModule` + `JwtModule.register()`, providers `[AuthService, JwtStrategy]`
-- [ ] Apply `@UseGuards(JwtAuthGuard, RolesGuard)` to resource controller — remove `ApiKeyGuard`
-- [ ] Add `@Roles(Role.Admin)` to delete route
-- [ ] Update all service methods to accept `tenantId` parameter — replace hardcoded value
-- [ ] Update all controller methods to use `@CurrentUser() user: JwtPayload` — use `import type { JwtPayload }`
+- [x] `npm install @nestjs/jwt @nestjs/passport passport passport-jwt @nestjs/swagger`
+- [x] `npm install --save-dev @types/passport-jwt`
+- [x] Add `JWT_SECRET=your-super-secret-key-change-in-production` to `.env`
+- [x] Create `src/common/enums/role.enum.ts` — `Admin`, `TenantUser`, `Viewer`
+- [x] Create `src/auth/interfaces/jwt-payload.interface.ts` — `{ sub, tenantId, role }`
+- [x] `nest generate module auth` → `nest generate service auth` → `nest generate controller auth`
+- [x] Create `src/auth/dto/login.dto.ts` — `@ApiProperty` + `@IsNumber` on tenantId, `@IsString @IsNotEmpty @IsEnum(Role)` on role .. this means you need to manaully create the `dto` folder under the `auth` directory and create the file `login.dto.ts`. Just note that if you dont install the `class-validator` now, it won't work which is okay bc not using it yet.
+  - **EACH field needs its OWN `@ApiProperty` directly above it.** `tenantId` → `@ApiProperty({ example: 1 })` (a NUMBER); `role` → `@ApiProperty({ example: 'admin' })` (a string)
+  - Common mistake: putting one `@ApiProperty({ example: 'admin' })` above `tenantId` and none on `role` → Swagger shows `{ "tenantId": "admin" }` with no role field. The decorator describes the property directly below it
+  - `@ApiProperty` only controls the Swagger example/docs — it does NOT validate. You can still send a wrong body manually until Phase 3 wires up `ValidationPipe`
+- [x] Write `AuthService.login()` — signs JWT with `{ sub: tenantId, tenantId, role }` .. make sure to import `import { JwtService } from '@nestjs/jwt';` to define in the constructor.
+- [x] Write `AuthController` — `POST /auth/login` using `LoginDto`, `@ApiTags('auth')` .. this means I need to import in the `LoginDto` component.. add the constructor using AuthService. The login Body expects to follow the LoginDto model.
+- [x] Create `src/auth/jwt.strategy.ts` — extends `PassportStrategy(Strategy)`, `process.env.JWT_SECRET!`, `validate()` returns payload .. grabbed the example from `https://docs.nestjs.com/recipes/passport#implementing-passport-strategies` as there is an example in their `auth/jwt.strategy.ts` file.
+- [x] Create `src/common/guards/jwt-auth.guard.ts` — extends `AuthGuard('jwt')` .. grabbed the exampole from `https://docs.nestjs.com/recipes/passport#jwt-functionality` as there is an example in their `uth/jwt-auth.guard.ts` file.
+- [x] Create `src/common/decorators/roles.decorator.ts` — export `ROLES_KEY = 'roles'`, `@Roles()` uses `SetMetadata(ROLES_KEY, roles)` — **NOT the string `'ROLES_KEY'`**
+- [x] Create `src/common/guards/roles.guard.ts` — inject `Reflector`, `getAllAndOverride(ROLES_KEY, [...])`, `requiredRoles.some()`
+  - Every guard = class `implements CanActivate` with one `canActivate()` returning `true` (allow) / `false` (deny → Nest sends 403)
+  - Inject `Reflector` — it's the ONLY tool that reads the metadata the `@Roles()` decorator wrote
+  - `getAllAndOverride<Role[]>(ROLES_KEY, [context.getHandler(), context.getClass()])` — reads the sticky note; checks the method first, falls back to the controller. Import `ROLES_KEY` from the decorator file — same key both sides or it silently fails
+  - `if (!requiredRoles) return true;` — route has no `@Roles()` → no restriction → allow. Without this line, unrestricted routes crash on the next line
+  - Get the user: `const user = context.switchToHttp().getRequest().user;` — `JwtAuthGuard` ran FIRST and put the verified payload on `request.user`. That ordering is why this guard can assume the user exists
+  - `return requiredRoles.some((role) => user.role === role);` — true if the user's role matches any allowed role
+  - **Key mental model:** `@Roles()` writes the note, `RolesGuard` reads it. Guard order in `@UseGuards(JwtAuthGuard, RolesGuard)` matters — auth must populate `request.user` before roles can be checked
+  - This file does NOT change in any later phase — Phase 2 version = final version
+- [x] Create `src/common/decorators/current-user.decorator.ts` — `createParamDecorator`, returns `request.user`
+- [x] Update `AuthModule` — import `PassportModule` + `JwtModule.register()`, providers `[AuthService, JwtStrategy]`
+  - **This goes in `src/auth/auth.module.ts` — NOT `app.module.ts`.** AuthModule owns its own JWT/Passport deps; AppModule just imports AuthModule
+  - **Use `JwtModule.register()` (synchronous) in Phase 2** — reads `process.env.JWT_SECRET` directly. The `registerAsync()` + `ConfigService` version is a Phase 6 upgrade (don't use it now — ConfigModule doesn't exist yet)
+  - `register({ secret: process.env.JWT_SECRET, signOptions: { expiresIn: '7d' } })`
+  - Without this wiring, the app throws `Nest can't resolve dependencies of AuthService` — because `AuthService` injects `JwtService`, which only exists once `JwtModule` is registered here
+- [x] Apply `@UseGuards(JwtAuthGuard, RolesGuard)` to resource controller — remove `ApiKeyGuard`
+- [x] Add `@Roles(Role.Admin)` to delete route
+- [x] Update all service methods to accept `tenantId` parameter — replace hardcoded value .. this means in the service file just update the signatures to include the param of `tenantId: number`.. keep in mind that the order I declare them in is the same order I must pass the arguments to the caller!
+  - **ALL FIVE methods need it — easy to miss one.** Target signatures: `create(dto, tenantId)`, `findAll(tenantId)`, `findOne(id, tenantId)`, `update(id, dto, tenantId)`, `remove(id, tenantId)`
+  - Only `findAll` had a hardcoded value to replace (`{ tenantId: 1 }` → `{ tenantId }`). The others (create/findOne/update/remove) are still stub bodies — just add the param to the signature, leave the stub body until Phase 3
+  - If the controller errors "2 arguments but service declares 1," that's a service signature you forgot to update
+- [x] Update all controller methods to use `@CurrentUser() user: JwtPayload` — use `import type { JwtPayload }`
+  - Add `@CurrentUser() user: JwtPayload` as a parameter to EVERY method
+  - Import as `import type { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';` — `type` is required because it's an interface (a type, not a runtime value) used in a decorated file
+  - Also import `{ CurrentUser }` (no `type`) from the decorator file
+  - **The decorator alone does nothing** — must actually PASS `user.tenantId` into each service call (e.g. `findAll(user.tenantId)`, `create(dto, user.tenantId)`). Remove all hardcoded values like `findAll(1)`
+  - Controller param ORDER doesn't matter (Nest injects by decorator). But the service CALL arguments are positional — must match the service signature order
+  - If the service requires `tenantId` and you forget to pass it, TypeScript errors "Expected 2 arguments, got 1" — that red squiggle is your safety net
 - [ ] Swagger: `DocumentBuilder` in `main.ts` before `app.listen()`, `@ApiTags`, `@ApiBearerAuth`, `@ApiOperation`, `@ApiResponse` on controller
-- [ ] Test: login → copy token → Authorize in Swagger → GET → 200, DELETE with viewer token → 403, no token → 401
+  - **This step edits TWO places: `main.ts` AND every controller. Easy to do one and forget the other.**
+  - **main.ts:** `DocumentBuilder` with `.setTitle()`, `.setDescription()`, `.setVersion()`, and `.addBearerAuth()` → `.build()`, then `SwaggerModule.setup('api', app, document)` before `app.listen()`
+    - `.addBearerAuth()` is REQUIRED — it creates the "Authorize" button in Swagger UI so you can paste your JWT. Without it you can't test protected routes
+  - **Class-level decorators** (above `@Controller`): `@ApiTags('name')` groups routes in the UI; `@ApiBearerAuth()` shows the padlock / marks routes as needing a token
+  - **Method-level decorators** (directly above each `@Get`/`@Post`/etc): `@ApiOperation({ summary: '...' })` + `@ApiResponse({ status, description })` — describe THAT route. Summary text must match the route (don't copy/paste "login" text onto a property route)
+  - **CRITICAL: `@ApiBearerAuth()` goes ONLY on protected controllers.** PropertiesController = yes (every route needs a token). AuthController = NO — `/auth/login` is public (it's how you GET the token; you don't have one yet)
+  - `.addBearerAuth()` in main.ts + `@ApiBearerAuth()` on the controller are a PAIR — both required for the Authorize button to actually work
+  - `@ApiOperation`/`@ApiResponse` are documentation polish — the API works without them, but add them per-route for a clean UI
+  - Cleanup: remove the now-unused `ApiKeyGuard` import from the controller
+- [x] Test: login → copy token → Authorize in Swagger → GET → 200, DELETE with viewer token → 403, no token → 401
+  - Login body: `{ "tenantId": 1, "role": "viewer" }` — **`tenantId` is a NUMBER (1), `role` is the string.** Don't put "viewer" in the tenantId field
+  - If you put a string in `tenantId`, you get a 500 PrismaClientValidationError (`Expected Int, provided String`) when GET runs `findMany({ where: { tenantId: "viewer" } })` — because there's no validation yet (Phase 3 catches this with a 400)
+  - Copy `access_token` from the login response → click **Authorize** → paste → confirm
+  - `GET /properties` with viewer token → 200 + your tenant 1 property
+  - `DELETE /properties/:id` with viewer token → 403 (only Admin can delete)
+  - Log in again with `role: "admin"` → re-authorize → DELETE works
+  - No token → 401
 
 ---
 

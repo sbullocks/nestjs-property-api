@@ -113,11 +113,11 @@ So `private readonly` = this service is mine, it's locked in, and nobody outside
 
 RTK Query is the closest comparison on the frontend side:
 
-| RTK Query (client) | NestJS (server) |
-|---|---|
-| endpoint definition | controller route |
-| query/mutation | service method |
-| cache/state | database via Prisma |
+| RTK Query (client)  | NestJS (server)     |
+| ------------------- | ------------------- |
+| endpoint definition | controller route    |
+| query/mutation      | service method      |
+| cache/state         | database via Prisma |
 
 Both are structured pipelines where each layer has one job. RTK Query manages server state in the browser. NestJS is the server — it's what RTK Query is talking to.
 
@@ -145,6 +145,7 @@ npm install --save-dev @types/passport-jwt
 - `@types/passport-jwt` — TypeScript types for passport-jwt (dev only, not shipped to production)
 
 Add to `.env`:
+
 ```
 JWT_SECRET=your-super-secret-key-change-in-production
 ```
@@ -154,6 +155,7 @@ JWT_SECRET=your-super-secret-key-change-in-production
 ### What JWT Is
 
 JSON Web Token — a signed token composed of 3 parts separated by dots:
+
 1. **Header** — the algorithm used to sign it (`HS256`)
 2. **Payload** — the claims (user id, tenantId, role, expiry)
 3. **Signature** — proof the token wasn't tampered with
@@ -171,9 +173,9 @@ The payload is what gets packed into the token. Define it as a TypeScript interf
 ```ts
 // src/auth/interfaces/jwt-payload.interface.ts
 export interface JwtPayload {
-  sub: number;        // subject — standard JWT claim, conventionally the user's ID
-  tenantId: number;   // for multi-tenant query scoping
-  role: string;       // for RBAC
+  sub: number // subject — standard JWT claim, conventionally the user's ID
+  tenantId: number // for multi-tenant query scoping
+  role: string // for RBAC
 }
 ```
 
@@ -201,11 +203,13 @@ Using raw strings like `'admin'` everywhere is fragile — one typo and access i
 ### RBAC — How It Works
 
 Three pieces work together:
+
 1. **Role enum** — defines the valid roles
 2. **@Roles() decorator** — marks which roles can access a specific route
 3. **RolesGuard** — reads the role from the JWT and compares it to the required roles
 
 Two separate jobs, two separate guards:
+
 - **JwtAuthGuard** → authentication: is this token real and not expired? Decodes it and attaches the payload to `request.user`.
 - **RolesGuard** → authorization: does this user's role match what this route requires?
 
@@ -239,6 +243,7 @@ The `ROLES_KEY` constant is used in both the decorator and the guard so there's 
 **No `@Roles()` on a route = open to all authenticated users.**
 
 Inside RolesGuard:
+
 ```ts
 const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [...]);
 if (!requiredRoles) return true;  // no metadata found = any valid JWT passes
@@ -274,9 +279,32 @@ The alternative is `getAllAndMerge` which combines both lists. `getAllAndOverrid
 
 ---
 
+### Building RolesGuard From Scratch (Derivation, Not Memorization)
+
+The NestJS docs split this across TWO pages, which is why it's hard to assemble:
+
+- **Fundamentals → Guards** — gives the skeleton (`CanActivate`, `ExecutionContext`, `Reflector` injection). Looks incomplete because it is.
+- **Security → Authorization** ("Basic RBAC implementation") — fills in the body.
+
+Derive the file one decision at a time:
+
+1. **Shape is fixed.** Every guard is a class `implements CanActivate` with one `canActivate(context): boolean`. Returns `true` = allow, `false` = deny (Nest turns `false` into 403).
+2. **Need to read the sticky note → inject the reader.** `@Roles()` wrote metadata; `Reflector` is the only thing that reads it. → `constructor(private reflector: Reflector) {}`
+3. **Read the required roles.** `getAllAndOverride<Role[]>(ROLES_KEY, [context.getHandler(), context.getClass()])`. Import `ROLES_KEY` from the decorator file — same constant both sides or the read silently misses the write.
+4. **Handle no-decorator case.** No `@Roles()` → returns `undefined` → `if (!requiredRoles) return true;`. Skip this line and unrestricted routes crash on the next line.
+5. **Get the user.** `context.switchToHttp().getRequest().user`. `switchToHttp()` narrows the generic context (guards also run for WebSockets/microservices) to an HTTP request.
+6. **Decide.** `requiredRoles.some((role) => user.role === role)` — true if user's single role is in the allowed list.
+
+**The missing link the docs never state in one place:** execution ORDER. `JwtAuthGuard` runs first and puts the verified payload on `request.user`. Only then does `RolesGuard` run and read `user.role`. That's why `@UseGuards(JwtAuthGuard, RolesGuard)` order matters and why RolesGuard can safely assume `request.user` exists — it never re-verifies the token itself.
+
+**Phase note:** RolesGuard is built once and never changes in later phases (unlike `jwt.strategy.ts`, which becomes ConfigService-based in Phase 6). The Phase 2 version is the final version — so referencing the v1 file for this step is safe, the two are identical.
+
+---
+
 ### Feature Module Pattern
 
 When generating auth:
+
 ```bash
 nest generate module auth      # creates auth.module.ts, updates app.module.ts imports
 nest generate service auth     # creates auth.service.ts, updates auth.module.ts providers
@@ -299,12 +327,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET!,  // ! = non-null assertion
-    });
+      secretOrKey: process.env.JWT_SECRET!, // ! = non-null assertion
+    })
   }
 
   async validate(payload: JwtPayload) {
-    return payload; // attached to request.user after signature is verified
+    return payload // attached to request.user after signature is verified
   }
 }
 ```
@@ -343,11 +371,14 @@ export class AuthModule {}
 export class AuthService {
   constructor(private readonly jwtService: JwtService) {}
 
-  async login(tenantId: number, role: string): Promise<{ access_token: string }> {
-    const payload: JwtPayload = { sub: tenantId, tenantId, role };
+  async login(
+    tenantId: number,
+    role: string,
+  ): Promise<{ access_token: string }> {
+    const payload: JwtPayload = { sub: tenantId, tenantId, role }
     return {
       access_token: this.jwtService.sign(payload),
-    };
+    }
   }
 }
 ```
@@ -365,7 +396,7 @@ export class AuthController {
 
   @Post('login')
   login(@Body() body: { tenantId: number; role: string }) {
-    return this.authService.login(body.tenantId, body.role);
+    return this.authService.login(body.tenantId, body.role)
   }
 }
 ```
@@ -373,6 +404,7 @@ export class AuthController {
 `@Post('login')` must be INSIDE the class body. A common mistake is placing it outside the closing `}` — it becomes a decorator with nothing to attach to.
 
 Test:
+
 ```bash
 curl -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
@@ -401,8 +433,8 @@ curl -X POST http://localhost:3000/auth/login \
 
 ```ts
 // src/common/guards/jwt-auth.guard.ts
-import { Injectable } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+import { Injectable } from '@nestjs/common'
+import { AuthGuard } from '@nestjs/passport'
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {}
@@ -420,18 +452,19 @@ Instead of injecting `@Req() req` and writing `req.user` everywhere, create a cl
 
 ```ts
 // src/common/decorators/current-user.decorator.ts
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { createParamDecorator, ExecutionContext } from '@nestjs/common'
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface'
 
 export const CurrentUser = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): JwtPayload => {
-    const request = ctx.switchToHttp().getRequest();
-    return request.user;
+    const request = ctx.switchToHttp().getRequest()
+    return request.user
   },
-);
+)
 ```
 
 Usage in controller:
+
 ```ts
 @Get()
 findAll(@CurrentUser() user: JwtPayload) {
@@ -449,16 +482,15 @@ findAll(@CurrentUser() user: JwtPayload) {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('properties')
 export class PropertiesController {
-
   @Get()
   findAll(@CurrentUser() user: JwtPayload) {
-    return this.propertiesService.findAll(user.tenantId);   // tenantId from JWT, not hardcoded
+    return this.propertiesService.findAll(user.tenantId) // tenantId from JWT, not hardcoded
   }
 
   @Roles(Role.Admin)
   @Delete(':id')
   remove(@Param('id') id: string) {
-    return this.propertiesService.remove(+id);
+    return this.propertiesService.remove(+id)
   }
 }
 ```
@@ -467,6 +499,7 @@ export class PropertiesController {
 - `@Delete(':id')` — `@Roles(Role.Admin)` → only admins can delete
 
 **401 vs 403:**
+
 - **401 Unauthorized** — no token or invalid token. JwtAuthGuard blocks it. "Who are you?"
 - **403 Forbidden** — valid token, wrong role. RolesGuard blocks it. "I know who you are — you can't do this."
 
@@ -489,17 +522,19 @@ TypeScript types (`{ tenantId: number; role: string }`) are erased after compila
 ---
 
 **`import type` for interfaces in decorated signatures:**
+
 ```ts
 // Wrong — TypeScript error ts(1272) with isolatedModules + emitDecoratorMetadata
-import { JwtPayload } from '...';
+import { JwtPayload } from '...'
 
 // Correct
-import type { JwtPayload } from '...';
+import type { JwtPayload } from '...'
 ```
 
 When `isolatedModules: true` and `emitDecoratorMetadata: true` are both on (NestJS tsconfig has both), TypeScript tries to emit runtime type metadata for decorated method parameters. An interface has no runtime value — it only exists in TypeScript. Using `import type` tells TypeScript not to emit it. You'll see this in every NestJS project.
 
 **No semicolons after decorators:**
+
 ```ts
 @UseGuards(JwtAuthGuard, RolesGuard);  // WRONG — semicolon breaks it
 @UseGuards(JwtAuthGuard, RolesGuard)   // correct
@@ -513,11 +548,13 @@ Decorators sit directly on top of what they decorate with no punctuation.
 ### Testing JWT Flow End-to-End
 
 Install `jq` first — parses JSON in the terminal, used constantly with APIs:
+
 ```bash
 brew install jq
 ```
 
 Get a token and use it in one command:
+
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
@@ -527,11 +564,13 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/properties
 ```
 
 Without a token (should get 401):
+
 ```bash
 curl http://localhost:3000/properties
 ```
 
 With a token but wrong role (should get 403 — once delete is role-restricted):
+
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
@@ -547,23 +586,25 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:3000/propertie
 Swagger auto-generates interactive API documentation from decorators — no separate doc writing needed. Visit `http://localhost:3000/api` once set up.
 
 **Setup in `main.ts`:**
+
 ```ts
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
 
 const config = new DocumentBuilder()
   .setTitle('HPOS API')
   .setDescription('Property management API')
   .setVersion('1.0')
-  .addBearerAuth()   // adds the Authorize button to the UI
-  .build();
+  .addBearerAuth() // adds the Authorize button to the UI
+  .build()
 
-const document = SwaggerModule.createDocument(app, config);
-SwaggerModule.setup('api', app, document);
+const document = SwaggerModule.createDocument(app, config)
+SwaggerModule.setup('api', app, document)
 ```
 
 This goes before `app.listen()`.
 
 **Decorate the controller:**
+
 ```ts
 @ApiTags('properties')      // groups routes under "properties" in the UI
 @ApiBearerAuth()            // shows the padlock — route requires JWT
@@ -579,27 +620,29 @@ export class PropertiesController {
 ```
 
 **Decorate DTOs** so Swagger knows the request body shape:
+
 ```ts
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger'
 
 export class CreatePropertyDto {
   @ApiProperty({ example: 'Sunset Apartments' })
-  name: string;
+  name: string
 
   @ApiProperty({ example: '123 Main St' })
-  address: string;
+  address: string
 
   @ApiProperty({ example: 'Austin' })
-  city: string;
+  city: string
 
   @ApiProperty({ example: 'TX' })
-  state: string;
+  state: string
 }
 ```
 
 Without `@ApiProperty()`, Swagger shows the request body as empty in the UI.
 
 **Using the Swagger UI:**
+
 1. Visit `http://localhost:3000/api`
 2. Click "Authorize" → enter the token from the login endpoint
 3. Try `GET /properties` → should return tenant data
@@ -637,10 +680,10 @@ Add to `main.ts` before `app.listen()`:
 ```ts
 app.useGlobalPipes(
   new ValidationPipe({
-    whitelist: true,   // strips fields not in the DTO — security feature
-    transform: true,   // auto-converts JSON to typed class instances
+    whitelist: true, // strips fields not in the DTO — security feature
+    transform: true, // auto-converts JSON to typed class instances
   }),
-);
+)
 ```
 
 **`whitelist: true`** — if a request body includes extra fields not defined in the DTO, they are silently stripped before reaching the controller. No error is thrown — the extra fields just disappear. This prevents users from injecting unexpected fields.
@@ -655,29 +698,29 @@ app.useGlobalPipes(
 
 ```ts
 // src/properties/dto/create-property.dto.ts
-import { IsString, IsNotEmpty, Length } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, Length } from 'class-validator'
+import { ApiProperty } from '@nestjs/swagger'
 
 export class CreatePropertyDto {
   @ApiProperty({ example: 'Sunset Apartments' })
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name: string
 
   @ApiProperty({ example: '123 Main St' })
   @IsString()
   @IsNotEmpty()
-  address: string;
+  address: string
 
   @ApiProperty({ example: 'Austin' })
   @IsString()
   @IsNotEmpty()
-  city: string;
+  city: string
 
   @ApiProperty({ example: 'TX' })
   @IsString()
   @Length(2, 2)
-  state: string;
+  state: string
 }
 ```
 
@@ -690,19 +733,19 @@ Send extra fields (e.g., `"hackerField": "bad"`) → silently stripped, no error
 ### LoginDto Validation
 
 ```ts
-import { IsString, IsNotEmpty, IsNumber, IsEnum } from 'class-validator';
-import { Role } from 'src/common/enums/role.enum';
+import { IsString, IsNotEmpty, IsNumber, IsEnum } from 'class-validator'
+import { Role } from 'src/common/enums/role.enum'
 
 export class LoginDto {
   @ApiProperty({ example: 1 })
   @IsNumber()
-  tenantId: number;
+  tenantId: number
 
   @ApiProperty({ example: 'admin' })
   @IsString()
   @IsNotEmpty()
   @IsEnum(Role)
-  role: string;
+  role: string
 }
 ```
 
@@ -739,6 +782,7 @@ The JWT is server-signed — a malicious user can't forge what's inside it. Anyt
 ### Complete CRUD Service Patterns
 
 **findOne — verify ownership before returning:**
+
 ```ts
 async findOne(id: number, tenantId: number): Promise<Property> {
   const property = await this.prisma.property.findFirst({
@@ -750,6 +794,7 @@ async findOne(id: number, tenantId: number): Promise<Property> {
 ```
 
 **update — verify ownership before mutating:**
+
 ```ts
 async update(id: number, dto: UpdatePropertyDto, tenantId: number): Promise<Property> {
   const property = await this.prisma.property.findFirst({
@@ -761,6 +806,7 @@ async update(id: number, dto: UpdatePropertyDto, tenantId: number): Promise<Prop
 ```
 
 **remove — verify ownership before deleting:**
+
 ```ts
 async remove(id: number, tenantId: number): Promise<Property> {
   const property = await this.prisma.property.findFirst({
@@ -774,6 +820,7 @@ async remove(id: number, tenantId: number): Promise<Property> {
 Pattern is the same for all three: `findFirst` with both `id` AND `tenantId` → if null throw NotFoundException → then mutate. The caller never knows if a record exists but belongs to another tenant — both cases return 404.
 
 **Every write controller method needs `@CurrentUser()` and must pass `user.tenantId` to the service:**
+
 ```ts
 @Patch(':id')
 update(
@@ -793,10 +840,10 @@ If the service signature changes (adds a parameter), the controller call must ma
 
 ```ts
 // Wrong — stores metadata under the string 'ROLES_KEY'
-export const Roles = (...roles: Role[]) => SetMetadata('ROLES_KEY', roles);
+export const Roles = (...roles: Role[]) => SetMetadata('ROLES_KEY', roles)
 
 // Correct — stores metadata under the constant value 'roles'
-export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
+export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles)
 ```
 
 The decorator stored metadata under `'ROLES_KEY'` (the variable name as a string literal). The guard was reading for `ROLES_KEY` (the constant, whose value is `'roles'`). They never matched — so `requiredRoles` was always `undefined` → guard always returned `true` → every role could hit every route.
@@ -812,9 +859,11 @@ This is exactly why the `ROLES_KEY` constant exists — use it in both the decor
 Error: `Foreign key constraint violated on the constraint: Property_tenantId_fkey`
 
 Fix: insert a Tenant row first:
+
 ```bash
 psql hpos_test_db
 ```
+
 ```sql
 INSERT INTO "Tenant" (name) VALUES ('Test Tenant');
 ```
@@ -826,6 +875,7 @@ This is why in production, tenants are created through a registration flow befor
 ### Testing Role Restrictions in Swagger
 
 The "Authorize" button in Swagger holds one active token. To test a 403 on a role-restricted route:
+
 1. Login with a non-admin role: `POST /auth/login` with `"role": "tenant_user"`
 2. Copy that token from the response
 3. Click Authorize → replace the current token with the new one
@@ -870,8 +920,8 @@ describe('PropertiesService', () => {    // groups related tests
 ### Mocking — mockResolvedValue vs mockReturnValue
 
 ```ts
-jest.fn().mockResolvedValue(data)   // async function — returns a Promise that resolves to data
-jest.fn().mockReturnValue(data)     // sync function — returns data directly
+jest.fn().mockResolvedValue(data) // async function — returns a Promise that resolves to data
+jest.fn().mockReturnValue(data) // sync function — returns data directly
 ```
 
 `jwtService.sign()` is synchronous → `mockReturnValue`.
@@ -884,12 +934,12 @@ jest.fn().mockReturnValue(data)     // sync function — returns data directly
 ### Key Assertions
 
 ```ts
-expect(result).toHaveProperty('access_token')         // object has this key
-expect(result.data).toHaveLength(1)                   // array length
-expect(result).toEqual(mockProperty)                  // deep equality
-expect(fn).toHaveBeenCalledWith({ sub: 1, tenantId: 1, role: 'admin' })  // exact args
-expect(fn).toHaveBeenCalledTimes(1)                   // called exactly once
-expect(fn).not.toHaveBeenCalled()                     // never called
+expect(result).toHaveProperty('access_token') // object has this key
+expect(result.data).toHaveLength(1) // array length
+expect(result).toEqual(mockProperty) // deep equality
+expect(fn).toHaveBeenCalledWith({ sub: 1, tenantId: 1, role: 'admin' }) // exact args
+expect(fn).toHaveBeenCalledTimes(1) // called exactly once
+expect(fn).not.toHaveBeenCalled() // never called
 
 // For async functions that should throw:
 await expect(service.findOne(999, 1)).rejects.toThrow(NotFoundException)
@@ -915,18 +965,20 @@ const mockPrismaService = {
     delete: jest.fn(),
     count: jest.fn(),
   },
-};
+}
 ```
 
 Then inject it instead of the real service in the test module:
+
 ```ts
 { provide: PrismaService, useValue: mockPrismaService }
 ```
 
 Each test tells the mock what to return:
+
 ```ts
-mockPrismaService.property.findFirst.mockResolvedValue(null);  // simulate not found
-mockPrismaService.property.findMany.mockResolvedValue([mockProperty]);  // simulate found
+mockPrismaService.property.findFirst.mockResolvedValue(null) // simulate not found
+mockPrismaService.property.findMany.mockResolvedValue([mockProperty]) // simulate found
 ```
 
 ---
@@ -936,10 +988,13 @@ mockPrismaService.property.findMany.mockResolvedValue([mockProperty]);  // simul
 Guards need an `ExecutionContext` to read metadata and the request. Build a fake one in tests:
 
 ```ts
-const createMockContext = (userRole: string, requiredRoles?: Role[]): ExecutionContext => {
-  const handler = jest.fn();
+const createMockContext = (
+  userRole: string,
+  requiredRoles?: Role[],
+): ExecutionContext => {
+  const handler = jest.fn()
   if (requiredRoles) {
-    Reflect.defineMetadata(ROLES_KEY, requiredRoles, handler);  // simulates @Roles() decorator
+    Reflect.defineMetadata(ROLES_KEY, requiredRoles, handler) // simulates @Roles() decorator
   }
   return {
     getHandler: () => handler,
@@ -947,16 +1002,17 @@ const createMockContext = (userRole: string, requiredRoles?: Role[]): ExecutionC
     switchToHttp: () => ({
       getRequest: () => ({ user: { sub: 1, tenantId: 1, role: userRole } }),
     }),
-  } as unknown as ExecutionContext;
-};
+  } as unknown as ExecutionContext
+}
 ```
 
 `Reflect.defineMetadata` attaches metadata directly to the handler function — the same thing `@Roles()` decorator does at runtime. `RolesGuard` uses `Reflector` to read it.
 
 Guards with no async dependencies don't need `Test.createTestingModule` — instantiate directly:
+
 ```ts
-reflector = new Reflector();
-guard = new RolesGuard(reflector);
+reflector = new Reflector()
+guard = new RolesGuard(reflector)
 ```
 
 **Important finding from tests:** RBAC is explicit, not hierarchical. If a route only allows `Role.Viewer`, an Admin is rejected — the guard uses `requiredRoles.some()` which checks exact role match, not a hierarchy.
@@ -969,9 +1025,9 @@ Controllers just route and extract — they don't contain logic. Controller test
 
 ```ts
 it('should call service.create with DTO and tenantId from JWT', async () => {
-  await controller.create(mockUser, dto);
-  expect(mockPropertiesService.create).toHaveBeenCalledWith(dto, 1);
-});
+  await controller.create(mockUser, dto)
+  expect(mockPropertiesService.create).toHaveBeenCalledWith(dto, 1)
+})
 ```
 
 Don't test the service logic in the controller test — that's already covered in the service spec. Don't test guards in controller tests — that's covered in the guard spec and e2e tests.
@@ -985,29 +1041,31 @@ beforeAll(async () => {
   // Boot the app ONCE — not before every test (too slow)
   const moduleFixture = await Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  }).compile()
 
-  app = moduleFixture.createNestApplication();
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  await app.init();
+  app = moduleFixture.createNestApplication()
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }))
+  await app.init()
 
   // Pull PrismaService from the running app's DI container for setup/teardown
-  prisma = app.get(PrismaService);
+  prisma = app.get(PrismaService)
 
   // Clean test database before suite runs
-  await prisma.property.deleteMany();
-  await prisma.tenant.deleteMany();
+  await prisma.property.deleteMany()
+  await prisma.tenant.deleteMany()
 
   // Seed a tenant (required for FK constraint) and get tokens
-  const tenant = await prisma.tenant.create({ data: { name: 'E2E Test Tenant' } });
-  tenantId = tenant.id;
-});
+  const tenant = await prisma.tenant.create({
+    data: { name: 'E2E Test Tenant' },
+  })
+  tenantId = tenant.id
+})
 
 afterAll(async () => {
-  await prisma.property.deleteMany();
-  await prisma.tenant.deleteMany();
-  await app.close();
-});
+  await prisma.property.deleteMany()
+  await prisma.tenant.deleteMany()
+  await app.close()
+})
 ```
 
 `beforeAll` not `beforeEach` — booting NestJS is slow, do it once. Tests share the running app and share state. Order matters — if a test creates a property and stores the id, later tests use that id.
@@ -1019,11 +1077,13 @@ afterAll(async () => {
 ### E2E Setup Files
 
 Three files needed:
+
 - `.env.test` — separate database so tests don't touch real data
 - `test/setup-env.ts` — loads `.env.test` before any module boots
 - `test/jest-e2e.json` — e2e jest config with `setupFiles` and `moduleNameMapper`
 
 `moduleNameMapper` is needed in both unit and e2e configs to resolve `src/` path aliases:
+
 ```json
 "moduleNameMapper": { "^src/(.*)$": "<rootDir>/$1" }
 ```
@@ -1039,6 +1099,7 @@ npm run test:cov
 ```
 
 Lines in red = untested. Key targets:
+
 - Service files → aim for 80%+
 - Guards → should be close to 100% (small, testable units)
 - Controllers → lower coverage is fine — logic lives in services
@@ -1052,10 +1113,12 @@ Lines in red = untested. Key targets:
 ### Mermaid ERD — mermaid.live
 
 The file `data-model.md` at the project root contains two Mermaid diagrams:
+
 1. The current schema (Tenant → Property)
 2. The expanded Hillpointe-style schema (Company → Property → Unit → Lease → Payment + MaintenanceRequest)
 
 **To view either diagram visually:**
+
 1. Open `data-model.md`
 2. Copy the full code block (everything between the triple backticks including the word `mermaid`)
 3. Go to **https://mermaid.live**
@@ -1083,15 +1146,16 @@ Opens at `http://localhost:5555` — a live browser UI showing all your real mod
 
 ### Reading the Diagram
 
-| Symbol on the line | Meaning |
-|---|---|
-| `\|\|` on one side | Exactly one — the FK side, required |
-| `o{` on the other side | Zero or more — the "many" side |
-| `\|\|--o{` together | One-to-many relation |
+| Symbol on the line     | Meaning                             |
+| ---------------------- | ----------------------------------- |
+| `\|\|` on one side     | Exactly one — the FK side, required |
+| `o{` on the other side | Zero or more — the "many" side      |
+| `\|\|--o{` together    | One-to-many relation                |
 
 Example from the diagram: `Company ||--o{ Property` — one Company owns zero or more Properties. A Property must belong to exactly one Company.
 
 The flow of the expanded model top to bottom:
+
 ```
 Company → owns → Property → contains → Unit → has → Lease → generates → Payment
                                         Unit → receives → MaintenanceRequest
@@ -1118,6 +1182,7 @@ npm install @nestjs/config joi @nestjs/throttler @nestjs/cache-manager cache-man
 ```
 
 In `app.module.ts`:
+
 ```ts
 import { ConfigModule } from '@nestjs/config';
 import * as Joi from 'joi';
@@ -1143,6 +1208,7 @@ ConfigModule.forRoot({
 After ConfigModule is wired, inject `ConfigService` anywhere you need an env var:
 
 **In JwtStrategy:**
+
 ```ts
 constructor(private configService: ConfigService) {
   super({
@@ -1154,6 +1220,7 @@ constructor(private configService: ConfigService) {
 ```
 
 **JwtModule.register() can't inject services — use registerAsync:**
+
 ```ts
 JwtModule.registerAsync({
   imports: [ConfigModule],
@@ -1172,6 +1239,7 @@ JwtModule.registerAsync({
 ### ThrottlerModule — Rate Limiting
 
 In `app.module.ts`:
+
 ```ts
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
@@ -1186,6 +1254,7 @@ ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
 `APP_GUARD` is a NestJS injection token for global guards. Using `{ provide: APP_GUARD, useClass: ThrottlerGuard }` in `AppModule.providers[]` registers `ThrottlerGuard` as a guard that runs on every single route — no `@UseGuards()` needed on individual controllers. 100 requests per minute limit applied globally.
 
 **Override the limit on a specific route:**
+
 ```ts
 @Throttle({ default: { ttl: 60000, limit: 5 } })
 @Post('login')
@@ -1195,6 +1264,7 @@ login(@Body() body: LoginDto) { ... }
 Login endpoint gets only 5 attempts per minute — 6th attempt returns **429 Too Many Requests**. Login is the primary target for brute-force attacks so it gets a stricter limit.
 
 **Skip throttle on a route:**
+
 ```ts
 @SkipThrottle()
 @Get('health')
@@ -1204,6 +1274,7 @@ health() { return { status: 'ok' }; }
 Infrastructure health checks ping the endpoint constantly — they'd burn the rate limit. `@SkipThrottle()` excludes it from throttle checks entirely.
 
 **Test the 429:**
+
 ```bash
 for i in {1..7}; do
   curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3000/auth/login \
@@ -1218,6 +1289,7 @@ done
 ### CacheModule — Response Caching
 
 In `app.module.ts`:
+
 ```ts
 import { CacheModule } from '@nestjs/cache-manager';
 
@@ -1232,6 +1304,7 @@ CacheModule.register({ isGlobal: true, ttl: 30000, max: 100 }),
   - A single key can hold a response with 500 rows inside it.
 
 **Apply CacheInterceptor to a route:**
+
 ```ts
 import { UseInterceptors } from '@nestjs/common';
 import { CacheInterceptor } from '@nestjs/cache-manager';
@@ -1252,8 +1325,8 @@ findAll(@CurrentUser() user: JwtPayload, @Query() query: QueryPropertyDto) {
 When a property is created, updated, or deleted, the cached `GET /properties` response is stale. Clear it after every write:
 
 ```ts
-import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Inject } from '@nestjs/common';
+import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager'
+import { Inject } from '@nestjs/common'
 
 @Injectable()
 export class PropertiesService {
@@ -1263,23 +1336,32 @@ export class PropertiesService {
   ) {}
 
   async create(dto: CreatePropertyDto, tenantId: number): Promise<Property> {
-    const result = await this.prisma.property.create({ data: { ...dto, tenantId } });
-    await this.cacheManager.clear();
-    return result;
+    const result = await this.prisma.property.create({
+      data: { ...dto, tenantId },
+    })
+    await this.cacheManager.clear()
+    return result
   }
 
-  async update(id: number, dto: UpdatePropertyDto, tenantId: number): Promise<Property> {
+  async update(
+    id: number,
+    dto: UpdatePropertyDto,
+    tenantId: number,
+  ): Promise<Property> {
     // ... findFirst, NotFoundException ...
-    const result = await this.prisma.property.update({ where: { id }, data: dto });
-    await this.cacheManager.clear();
-    return result;
+    const result = await this.prisma.property.update({
+      where: { id },
+      data: dto,
+    })
+    await this.cacheManager.clear()
+    return result
   }
 
   async remove(id: number, tenantId: number): Promise<Property> {
     // ... findFirst, NotFoundException ...
-    const result = await this.prisma.property.delete({ where: { id } });
-    await this.cacheManager.clear();
-    return result;
+    const result = await this.prisma.property.delete({ where: { id } })
+    await this.cacheManager.clear()
+    return result
   }
 }
 ```
@@ -1304,6 +1386,7 @@ Request 3 (31s later) → no cache → hits DB again → stores fresh result →
 ```
 
 **Users cannot manually refresh within the 30s window.** There is no force-refresh mechanism. Every request to the same URL gets the cached version until either:
+
 1. A write happens (`create`/`update`/`remove`) → `cacheManager.clear()` wipes it immediately
 2. The TTL expires naturally
 
@@ -1316,6 +1399,7 @@ The TTL is a safety net — if a write ever missed calling `clear()` (a bug, or 
 The health endpoint belongs in `AppController` and `AppService` — not `PropertiesController`. `AppController` owns root-level app concerns (`/`, `/health`). `PropertiesController` owns `/properties`.
 
 **`app.service.ts`:**
+
 ```ts
 getHealth(): { status: string; timestamp: string } {
   return { status: 'ok', timestamp: new Date().toISOString() };
@@ -1323,6 +1407,7 @@ getHealth(): { status: string; timestamp: string } {
 ```
 
 **`app.controller.ts`:**
+
 ```ts
 import { SkipThrottle } from '@nestjs/throttler';
 
@@ -1346,16 +1431,18 @@ Response: `{ "status": "ok", "timestamp": "2026-06-15T22:32:36.571Z" }`
 Typing `localhost:3000/properties` directly into the browser sends a plain GET with no headers. There is no way to attach `Authorization: Bearer <token>` from the address bar — 401 is always the result for any protected route.
 
 **Options for testing authenticated routes without a frontend:**
+
 - **Swagger UI** (`localhost:3000/api`) — click Authorize, paste token, padlock handles it on every request
 - **curl** — `curl -H "Authorization: Bearer <token>" http://localhost:3000/properties`
 - **Insomnia / Thunder Client** — GUI with a Headers tab
 
 **In a real frontend (React + RTK Query):**
+
 ```ts
 prepareHeaders: (headers, { getState }) => {
-  const token = getState().auth.token;
-  if (token) headers.set('Authorization', `Bearer ${token}`);
-  return headers;
+  const token = getState().auth.token
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  return headers
 }
 ```
 
@@ -1366,10 +1453,12 @@ The frontend stores the token after login and attaches it to every request autom
 ### What Gets Cached vs What Doesn't
 
 Cache is good for:
+
 - Read-heavy endpoints (`GET`) that change infrequently
 - Expensive queries (aggregations, large joins)
 
 Never cache:
+
 - Write operations (`POST`, `PATCH`, `DELETE`) — never return cached responses on mutations
 - Data that must always be fresh — cache introduces acceptable staleness, which isn't always acceptable
 
@@ -1436,16 +1525,17 @@ The N+1 problem is what happens when developers need related data and write a lo
 
 ```ts
 // N+1 — 1 query for the list, then 1 MORE query per property
-const properties = await prisma.property.findMany({ where });
+const properties = await prisma.property.findMany({ where })
 for (const p of properties) {
-  p.tenant = await prisma.tenant.findUnique({ where: { id: p.tenantId } });
+  p.tenant = await prisma.tenant.findUnique({ where: { id: p.tenantId } })
 }
 // 4 properties = 5 queries. 100 properties = 101 queries.
 ```
 
 `include` is the fix — Prisma fetches everything in 1 optimized query:
+
 ```ts
-prisma.property.findMany({ where, include: { tenant: true } });
+prisma.property.findMany({ where, include: { tenant: true } })
 // 100 properties = still 1 query. Prisma handles the join internally.
 ```
 
@@ -1476,11 +1566,12 @@ The `tenantId` index from Phase 1 was used (`Bitmap Index Scan`) because it was 
 This step has several moving parts. Breaking it down:
 
 **1. Build the where clause dynamically:**
+
 ```ts
-const where: Prisma.PropertyWhereInput = { tenantId };  // always filter by tenant
-if (query.city) where.city = query.city;                // add city filter if provided
-if (query.state) where.state = query.state;             // add state filter if provided
-if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
+const where: Prisma.PropertyWhereInput = { tenantId } // always filter by tenant
+if (query.city) where.city = query.city // add city filter if provided
+if (query.state) where.state = query.state // add state filter if provided
+if (query.search) where.name = { contains: query.search, mode: 'insensitive' }
 ```
 
 `Prisma.PropertyWhereInput` is the TypeScript type for the `where` object — gives autocomplete and type safety when adding conditions. This is separate from the return type of the function.
@@ -1488,20 +1579,22 @@ if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
 The `if` checks mean: only add the filter if the query param was actually sent. If no `?city=` in the URL, `query.city` is `undefined` → the `if` is false → the filter is not added → all cities are returned.
 
 **2. Calculate pagination offsets:**
+
 ```ts
-const page = query.page ?? 1;      // default to page 1 if not sent
-const limit = query.limit ?? 10;   // default to 10 results if not sent
-const skip = (page - 1) * limit;   // page 1 → skip 0, page 2 → skip 10, page 3 → skip 20
+const page = query.page ?? 1 // default to page 1 if not sent
+const limit = query.limit ?? 10 // default to 10 results if not sent
+const skip = (page - 1) * limit // page 1 → skip 0, page 2 → skip 10, page 3 → skip 20
 ```
 
 `skip` is how many records to jump over. `take` is how many to return. This is standard offset pagination.
 
 **3. Run data and count queries in parallel:**
+
 ```ts
 const [data, total] = await Promise.all([
   this.prisma.property.findMany({ where, skip, take: limit }),
   this.prisma.property.count({ where }),
-]);
+])
 ```
 
 `Promise.all` fires both queries at the same time instead of sequentially. The data query returns the page of results. The count query returns the total number of matching records (needed to calculate total pages). Running them in parallel cuts the wait time in half vs awaiting one then the other.
@@ -1509,6 +1602,7 @@ const [data, total] = await Promise.all([
 Note: `where` here is the dynamic where object built above — NOT `{ tenantId }`. That was the most common mistake: building the dynamic where and then ignoring it by passing `{ tenantId }` directly to `findMany`.
 
 **4. Return data + metadata:**
+
 ```ts
 return {
   data,
@@ -1518,12 +1612,13 @@ return {
     limit,
     totalPages: Math.ceil(total / limit),
   },
-};
+}
 ```
 
 The return type changed from `Promise<Property[]>` to an inferred object type — because the shape is no longer a plain array. TypeScript infers the return type automatically so no need to write out the full complex type manually.
 
 **Full method:**
+
 ```ts
 async findAll(tenantId: number, query: QueryPropertyDto) {
   const where: Prisma.PropertyWhereInput = { tenantId };
@@ -1552,9 +1647,11 @@ async findAll(tenantId: number, query: QueryPropertyDto) {
 ## Wiring Prisma into NestJS (Step 6)
 
 ### nest generate service prisma
+
 Generates two files: `prisma.service.spec.ts` (Jest test file) and `prisma.service.ts`. Also auto-updates `app.module.ts` to add PrismaService as a provider. The spec file is for testing the service logic. The service file is where I write the actual PrismaService class.
 
 ### nest generate module prisma
+
 Creates `prisma.module.ts` and auto-updates `app.module.ts` to add PrismaModule to the imports array.
 
 ---
@@ -1564,6 +1661,7 @@ Creates `prisma.module.ts` and auto-updates `app.module.ts` to add PrismaModule 
 Made `PrismaService` extend `PrismaClient` and implement `OnModuleInit` and `OnModuleDestroy`. Extending PrismaClient means PrismaService IS the client — I call `this.property.findMany()` directly instead of going through a separate instance.
 
 `OnModuleInit` and `OnModuleDestroy` are NestJS lifecycle hooks:
+
 - `onModuleInit` fires after all modules are loaded and providers are resolved — right before the app starts accepting traffic. This is when `$connect()` runs.
 - `onModuleDestroy` fires when the app shuts down. This is when `$disconnect()` runs — closes the connection cleanly.
 
@@ -1607,15 +1705,20 @@ Certain routes are only available to callers with the right permissions. The gua
 ### The Guard File — api-key.guard.ts
 
 ```ts
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  UnauthorizedException,
+} from '@nestjs/common'
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest();
-    const apiKey = request.headers['x-api-key'];
-    if (apiKey === 'secret') return true;
-    throw new UnauthorizedException();
+    const request = context.switchToHttp().getRequest()
+    const apiKey = request.headers['x-api-key']
+    if (apiKey === 'secret') return true
+    throw new UnauthorizedException()
   }
 }
 ```
@@ -1627,6 +1730,7 @@ export class ApiKeyGuard implements CanActivate {
 `canActivate(context: ExecutionContext): boolean` — the method NestJS calls. Returns `boolean`. Can also return `Promise<boolean>` or `Observable<boolean>` if the check is async, but since checking a header is synchronous, plain `boolean` is all that's needed here.
 
 `context.switchToHttp().getRequest()` — this is the line to memorize. Every HTTP guard will have it.
+
 - `ExecutionContext` is NestJS's generic wrapper that works across HTTP, WebSockets, and gRPC
 - `.switchToHttp()` tells it we're in an HTTP context
 - `.getRequest()` returns the Express request object — everything the client sent: headers, body, params, URL, method
@@ -1643,6 +1747,7 @@ export class ApiKeyGuard implements CanActivate {
 ### Docs Example vs Our Guard
 
 The NestJS docs show a skeleton guard:
+
 ```ts
 // Docs skeleton — shows the shape, no real logic
 canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
@@ -1698,6 +1803,7 @@ model Property {
 ```
 
 `tenantId` on Property is a **foreign key** — it's not original to the Property model, it references the `id` of the Tenant model. This means:
+
 - You cannot create a Property with a `tenantId` that doesn't exist in the Tenant table — the database enforces this
 - Prisma can traverse the relation — `prisma.tenant.findUnique({ include: { properties: true } })` returns a tenant and all their properties in one query
 
@@ -1720,6 +1826,7 @@ async findAll(tenantId: number): Promise<Property[]> {
 ```
 
 The controller passes the tenantId (hardcoded as `1` for now — will come from JWT in Phase 2):
+
 ```ts
 findAll() {
   return this.propertiesService.findAll(1);
@@ -1729,6 +1836,7 @@ findAll() {
 ### Proof It Works
 
 Inserted a Tenant and a Property with `tenantId: 1` directly via psql. Then:
+
 - Called `findAll(1)` → returned the property ✓
 - Changed hardcoded value to `2` → returned `[]` ✓
 
@@ -1796,14 +1904,16 @@ The interceptor doesn't re-hit the controller. It wraps the execution — runs c
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const { method, url } = context.switchToHttp().getRequest();
-    const start = Date.now();
+    const { method, url } = context.switchToHttp().getRequest()
+    const start = Date.now()
 
-    console.log(`[${method}] ${url} — incoming`);
+    console.log(`[${method}] ${url} — incoming`)
 
-    return next.handle().pipe(
-      tap(() => console.log(`[${method}] ${url} — ${Date.now() - start}ms`)),
-    );
+    return next
+      .handle()
+      .pipe(
+        tap(() => console.log(`[${method}] ${url} — ${Date.now() - start}ms`)),
+      )
   }
 }
 ```
@@ -1814,13 +1924,15 @@ export class LoggingInterceptor implements NestInterceptor {
 - `tap` doesn't modify the response — it just observes it (side effect only)
 
 Applied globally in `main.ts` — every route gets it automatically:
+
 ```ts
-app.useGlobalInterceptors(new LoggingInterceptor());
+app.useGlobalInterceptors(new LoggingInterceptor())
 ```
 
 Uses `new` here because `main.ts` is outside the NestJS DI context. Same reason as always — outside DI = instantiate manually.
 
 Terminal output on every request:
+
 ```
 [GET] /properties — incoming
 [GET] /properties — 5ms
@@ -1835,6 +1947,7 @@ Terminal output on every request:
 Three ways to test — all send HTTP requests, just different tools:
 
 **curl** — terminal, fastest, full control over headers:
+
 ```bash
 curl http://localhost:3000/properties                        # no header → 401
 curl -H "x-api-key: secret" http://localhost:3000/properties # with header → []
@@ -1859,6 +1972,7 @@ Two commands to know:
 - `createdb hpos_test_db` — creates a new empty database with that name
 
 TablePlus is a visual tool to see the database — like Snowflake but for local Postgres. Connect using: Host `127.0.0.1`, Port `5432`, User = Mac username, Password blank, Database = the db name. Before connecting, the Postgres role (user) has to exist — create it with:
+
 ```bash
 psql postgres -c "CREATE ROLE your_username WITH SUPERUSER LOGIN;"
 ```
@@ -1870,10 +1984,12 @@ psql postgres -c "CREATE ROLE your_username WITH SUPERUSER LOGIN;"
 Prisma lets me interact with the database using TypeScript instead of writing raw SQL. Instead of a massive SQL block to query a table, I write `prisma.property.findMany()` and Prisma generates and runs the SQL for me.
 
 Two packages:
+
 - `prisma` — the CLI dev tool. Manages the schema, runs migrations, generates the client. Not shipped to production.
 - `@prisma/client` — the runtime client my app actually imports and uses. This goes to production.
 
 Install with explicit v6 (v5 crashes on Node 24, v7 breaks NestJS):
+
 ```bash
 npm install prisma@"^6.0.0" @prisma/client@"^6.0.0"
 ```
@@ -1883,10 +1999,12 @@ npm install prisma@"^6.0.0" @prisma/client@"^6.0.0"
 ## What prisma init Creates
 
 Two things:
+
 - `prisma/schema.prisma` — where I define my data models (tables) and my database connection. This is the source of truth for the database structure.
 - `.env` — where `DATABASE_URL` lives. Never commit this. Always check `.gitignore` has `.env` in it.
 
 `DATABASE_URL` is the connection string that tells Prisma where my database is, what user to connect as, and which database to use:
+
 ```
 postgresql://my_mac_username@localhost:5432/hpos_test_db
 ```
@@ -1896,6 +2014,7 @@ postgresql://my_mac_username@localhost:5432/hpos_test_db
 ## Prisma Migrations
 
 Running `npx prisma migrate dev --name init` does the following:
+
 1. Reads the DATABASE_URL from `.env` to connect to Postgres
 2. Loads the models from `schema.prisma`
 3. Generates SQL (like `CREATE TABLE`) and saves it to `prisma/migrations/<timestamp>_init/migration.sql`
@@ -1955,6 +2074,7 @@ In practice I think about it in reverse: what data do I need? → write the serv
 `nest generate resource properties` is similar to `nest new` — it creates a whole directory and structures it with files automatically. I just name it and NestJS scaffolds everything.
 
 Files it creates:
+
 - `properties.controller.ts` — predefined routes already configured, each referencing `this.propertiesService.x()`
 - `properties.service.ts` — predefined methods: `create`, `findAll`, `findOne`, `update`, `remove`
 - `properties.module.ts` — registers the controller and service for this scope
