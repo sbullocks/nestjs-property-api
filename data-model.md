@@ -38,7 +38,7 @@ A Property must belong to exactly one Tenant (the FK is required, not optional).
 
 ---
 
-## Expanded Model (Hillpointe-Style)
+## Expanded Model (PropertyCo-Style)
 
 A real property management system. Same patterns, more models and relations.
 
@@ -153,7 +153,7 @@ In this project:
 - Every `Property` row has a `tenantId` — it belongs to exactly one organization
 - Every query filters by `tenantId` so orgs never see each other's data
 
-In the Hillpointe model:
+In the PropertyCo model:
 - `Company` = the organization
 - Every `Property`, `Unit`, `Lease` traces back to a `companyId`
 - A `User` (employee) belongs to a `Company` and their JWT carries `companyId` + `role`

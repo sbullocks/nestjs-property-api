@@ -1,4 +1,4 @@
-# Advanced Build Checklist — Full Hillpointe-Style Model
+# Advanced Build Checklist — Full PropertyCo-Style Model
 
 8 models, real authentication, multi-level relation filtering. Build in stages — each stage
 adds models that depend on the previous stage's models existing first (FK constraints).

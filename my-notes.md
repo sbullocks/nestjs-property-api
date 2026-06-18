@@ -1127,7 +1127,7 @@ Lines in red = untested. Key targets:
 The file `data-model.md` at the project root contains two Mermaid diagrams:
 
 1. The current schema (Tenant → Property)
-2. The expanded Hillpointe-style schema (Company → Property → Unit → Lease → Payment + MaintenanceRequest)
+2. The expanded PropertyCo-style schema (Company → Property → Unit → Lease → Payment + MaintenanceRequest)
 
 **To view either diagram visually:**
 

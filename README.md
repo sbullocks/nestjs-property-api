@@ -30,7 +30,7 @@ nestjs-property-api/
 ├── crib-sheet.md               ← Interview-ready quick reference
 ├── cheatsheet.md               ← Pure syntax lookup
 ├── data-model.md               ← ERD diagrams (Mermaid) for both schemas
-├── advanced-checklist.md       ← Expanded 8-model Hillpointe-style schema guide
+├── advanced-checklist.md       ← Expanded 8-model PropertyCo-style schema guide
 └── troubleshooting.md          ← Known errors and fixes
 ```
 

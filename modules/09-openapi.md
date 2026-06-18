@@ -113,7 +113,7 @@ export class PropertiesController {
 
 ---
 
-## 9.6 Why This Matters for Hillpointe
+## 9.6 Why This Matters for PropertyCo
 
 A real production API has documentation. Frontend developers need to know what endpoints exist, what they expect, and what they return. Swagger auto-generated from decorators means the docs are always in sync with the code — you can't forget to update them because they're generated from the code itself.
 
