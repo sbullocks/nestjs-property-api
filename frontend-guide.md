@@ -338,7 +338,7 @@ at a time. Reference `my-notes.md` and `crib-sheet.md` for the backend context.
 
 ## Phase 3 — Properties List (RTK Query GET)
 
-- [ ] Create the properties API at `src/features/properties/propertiesApi.ts`:
+- [x] Create the properties API at `src/features/properties/propertiesApi.ts`:
 
   ```ts
   import { api } from '../../store/api'
@@ -391,7 +391,7 @@ at a time. Reference `my-notes.md` and `crib-sheet.md` for the backend context.
 
   - `providesTags: ['Property']` marks this cache entry — when a mutation invalidates `'Property'`, this query re-fetches automatically
 
-- [ ] Build the Properties page at `src/pages/PropertiesPage.tsx`:
+- [x] Build the Properties page at `src/pages/PropertiesPage.tsx`:
 
   ```tsx
   import { useState } from 'react'
@@ -506,7 +506,7 @@ at a time. Reference `my-notes.md` and `crib-sheet.md` for the backend context.
   }
   ```
 
-- [ ] Create `src/components/PropertyCard.tsx`:
+- [x] Create `src/components/PropertyCard.tsx`:
 
   ```tsx
   import { Card, CardContent, Typography } from '@mui/material'
@@ -526,16 +526,16 @@ at a time. Reference `my-notes.md` and `crib-sheet.md` for the backend context.
   }
   ```
 
-- [ ] Test: login → properties list appears with your backend data
-- [ ] Test: type in search box → list filters
-- [ ] Test: type in city box → list filters by city
-- [ ] Test: pagination buttons → page changes, different results
+- [x] Test: login → properties list appears with your backend data
+- [x] Test: type in search box → list filters
+- [x] Test: type in city box → list filters by city
+- [x] Test: pagination buttons → page changes, different results
 
 ---
 
 ## Phase 4 — CRUD (Create, Edit, Delete)
 
-- [ ] Add mutations to `propertiesApi.ts`:
+- [x] Add mutations to `propertiesApi.ts`:
 
   ```ts
   export interface CreatePropertyRequest {
@@ -562,7 +562,7 @@ at a time. Reference `my-notes.md` and `crib-sheet.md` for the backend context.
 
   - `invalidatesTags: ['Property']` is RTK Query's cache invalidation — any query tagged `'Property'` (your getProperties) will automatically re-fetch after this mutation succeeds. This is the frontend equivalent of `cacheManager.clear()` on the backend
 
-- [ ] Create `src/components/PropertyForm.tsx` (used for both create and edit):
+- [x] Create `src/components/PropertyForm.tsx` (used for both create and edit):
 
   ```tsx
   import { useState } from 'react'
@@ -634,11 +634,11 @@ at a time. Reference `my-notes.md` and `crib-sheet.md` for the backend context.
   }
   ```
 
-- [ ] Add Create button + dialog to `PropertiesPage.tsx` — opens a MUI `Dialog` containing `PropertyForm`, calls `useCreatePropertyMutation`
-- [ ] Add Edit + Delete buttons to `PropertyCard.tsx` — Edit opens a dialog pre-filled with current values, Delete calls `useDeletePropertyMutation` after a confirm dialog
-- [ ] Test: create a property → list updates automatically (no manual refresh)
-- [ ] Test: edit a property → list updates
-- [ ] Test: delete a property → list updates
+- [x] Add Create button + dialog to `PropertiesPage.tsx` — opens a MUI `Dialog` containing `PropertyForm`, calls `useCreatePropertyMutation`
+- [x] Add Edit + Delete buttons to `PropertyCard.tsx` — Edit opens a dialog pre-filled with current values, Delete calls `useDeletePropertyMutation` after a confirm dialog
+- [x] Test: create a property → list updates automatically (no manual refresh)
+- [x] Test: edit a property → list updates
+- [x] Test: delete a property → list updates
 
 ---
 

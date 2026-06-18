@@ -124,26 +124,31 @@ frontend-guide.md — the why is always there.
 
 ## Phase 3 — Properties List (RTK Query GET)
 
-- [ ] Create `src/features/properties/propertiesApi.ts` — getProperties query
-  - `builder.query` for `GET /properties` — queries are for reading data (GET)
-  - Accepts `params` object (`page`, `limit`, `city`, `state`, `search`) — RTK Query serializes to `?page=1&city=Austin`
-  - `providesTags: ['Property']` — marks this cache entry so mutations can invalidate it
-  - **Common mistake:** using `builder.mutation` for a GET — use `builder.query` for reads
+- [x] Create `src/features/properties/propertiesApi.ts` — getProperties query
+  - 4 interfaces: `Property` (shape of one record), `PropertiesMeta` (pagination info), `PropertiesResponse` (combines both — data array + meta object), `PropertyFilters` (optional query params)
+  - `PropertiesMeta { total, page, limit, totalPages }` — powers the pagination UI. `totalPages` tells Previous/Next when to disable, `total` lets you show "Page 1 of 5". Without meta you'd have no idea how many pages exist
+  - `builder.query` for GET — queries are for reads. `builder.mutation` is for POST/PATCH/DELETE (writes)
+  - `providesTags: ['Property']` — marks this cache entry. When a mutation runs with `invalidatesTags: ['Property']`, RTK Query automatically re-fetches this query
+  - **Queries are NOT dispatched.** Call as a hook directly in the component: `const { data, isLoading, error } = useGetPropertiesQuery({ page, limit: 10 })`. Only actions and mutations get dispatched — queries are automatic
 
-- [ ] Build `src/pages/PropertiesPage.tsx` — main properties view
-  - `useGetPropertiesQuery({ page, limit: 10, city, search })` — RTK Query hook, manages loading/error/data automatically
-  - Show `CircularProgress` while loading, `Alert` on error
-  - Render list of `PropertyCard` components
-  - Search + city filter inputs — reset `page` to 1 when filter changes
-  - Pagination buttons — Previous/Next, show current page and total pages from `data.meta`
-  - Logout button that dispatches `logout()` action and navigates to `/login`
+- [x] Build `src/pages/PropertiesPage.tsx` — main properties view
+  - `useState` for `page`, `city`, `search` = local component state (filters/pagination controlled here)
+  - `useGetPropertiesQuery({ page, limit: 10, city: city || undefined, search: search || undefined })` — pass `undefined` not empty string for omitted filters so RTK Query doesn't include them in the URL
+  - RTK Query manages `data`, `isLoading`, `error` automatically — no manual fetch/useEffect needed
+  - Reset `page` to 1 when filters change — otherwise page 3 of old results persists when you change city
+  - `data.meta` drives pagination buttons — `data.meta.totalPages` disables Next when on last page
+  - Logout: dispatch `logout()` action then `navigate('/login')`
 
-- [ ] Create `src/components/PropertyCard.tsx` — card for each property
+- [x] Create `src/components/PropertyCard.tsx` — card for each property
+  - `import type { Property }` — `import type` because `Property` is a TypeScript interface (type-only, doesn't exist at runtime). Same rule as `import type { JwtPayload }` on the backend
   - Display `name`, `address`, `city`, `state`
-  - Will add Edit + Delete buttons in Phase 4
+  - **Search vs city filter behavior is a backend concern, not frontend:**
+    - `search` (name) → backend uses `contains` with `mode: 'insensitive'` → partial match works ("sun" finds "Sunset Villas")
+    - `city` → backend uses exact equality (`where.city = query.city`) → must type full city name ("Austin" not "aus")
+    - To make city do partial match, the backend service would need `where.city = { contains: query.city, mode: 'insensitive' }`. Frontend passes whatever the user types — how it's matched is entirely the backend's decision
 
-- [ ] Test: properties list loads with real data from backend
-- [ ] Test: search and city filter work — list updates on input
+- [x] Test: properties list loads with real data from backend ✅
+- [x] Test: search partial match works, city requires full name (backend behavior explained above) ✅
 - [ ] Test: pagination — page changes show different results
 - [ ] Test: login as `tenantId: 2` → only sees tenant 2's properties (multi-tenancy works end to end)
 
