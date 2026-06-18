@@ -39,7 +39,8 @@ export default function PropertiesPage() {
     search: search || undefined,
   })
 
-  const [createProperty, { isLoading: isCreating }] = useCreatePropertyMutation()
+  const [createProperty, { isLoading: isCreating }] =
+    useCreatePropertyMutation()
 
   const handleLogout = () => {
     dispatch(logout())
@@ -72,9 +73,12 @@ export default function PropertiesPage() {
           <Typography variant="body2" color="text.secondary">
             Role: {role}
           </Typography>
-          <Button variant="contained" onClick={() => setOpenCreate(true)}>
+          {/* <Button variant="contained" onClick={() => setOpenCreate(true)}>
             Add Property
-          </Button>
+          </Button> */}
+          {role !== 'viewer' && (
+            <Button onClick={() => setOpenCreate(true)}>Add Property</Button>
+          )}
           <Button variant="outlined" onClick={handleLogout}>
             Logout
           </Button>
@@ -126,7 +130,12 @@ export default function PropertiesPage() {
       )}
 
       {/* Create Dialog */}
-      <Dialog open={openCreate} onClose={() => setOpenCreate(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={openCreate}
+        onClose={() => setOpenCreate(false)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Add Property</DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 1 }}>

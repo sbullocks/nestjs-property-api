@@ -8,8 +8,8 @@ interface AuthState {
 
 const initialState: AuthState = {
   token: localStorage.getItem('token'),
-  tenantId: null,
-  role: null,
+  tenantId: localStorage.getItem('tenantId') ? Number(localStorage.getItem('tenantId')) : null,
+  role: localStorage.getItem('role'),
 }
 
 const authSlice = createSlice({
@@ -24,12 +24,16 @@ const authSlice = createSlice({
       state.tenantId = action.payload.tenantId
       state.role = action.payload.role
       localStorage.setItem('token', action.payload.token)
+      localStorage.setItem('tenantId', String(action.payload.tenantId))
+      localStorage.setItem('role', action.payload.role)
     },
     logout(state) {
       state.token = null
       state.tenantId = null
       state.role = null
       localStorage.removeItem('token')
+      localStorage.removeItem('tenantId')
+      localStorage.removeItem('role')
     },
   },
 })

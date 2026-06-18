@@ -19,12 +19,16 @@ import {
   useDeletePropertyMutation,
 } from '../features/properties/propertiesApi'
 import PropertyForm from './PropertyForm'
+import { useAuth } from '../hooks/useAuth'
 
 export default function PropertyCard({ property }: { property: Property }) {
   const [openEdit, setOpenEdit] = useState(false)
   const [openDelete, setOpenDelete] = useState(false)
 
-  const [updateProperty, { isLoading: isUpdating }] = useUpdatePropertyMutation()
+  const { role } = useAuth()
+
+  const [updateProperty, { isLoading: isUpdating }] =
+    useUpdatePropertyMutation()
   const [deleteProperty] = useDeletePropertyMutation()
 
   const handleEdit = async (values: CreatePropertyRequest) => {
@@ -47,13 +51,24 @@ export default function PropertyCard({ property }: { property: Property }) {
           </Typography>
         </CardContent>
         <CardActions>
-          <Button size="small" onClick={() => setOpenEdit(true)}>Edit</Button>
-          <Button size="small" color="error" onClick={() => setOpenDelete(true)}>Delete</Button>
+          <Button size="small" onClick={() => setOpenEdit(true)}>
+            Edit
+          </Button>
+          {role === 'admin' && (
+            <Button size="small" color="error" onClick={() => setOpenDelete(true)}>
+              Delete
+            </Button>
+          )}
         </CardActions>
       </Card>
 
       {/* Edit Dialog */}
-      <Dialog open={openEdit} onClose={() => setOpenEdit(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={openEdit}
+        onClose={() => setOpenEdit(false)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Edit Property</DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 1 }}>
@@ -77,12 +92,15 @@ export default function PropertyCard({ property }: { property: Property }) {
         <DialogTitle>Delete Property</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure you want to delete "{property.name}"? This cannot be undone.
+            Are you sure you want to delete "{property.name}"? This cannot be
+            undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenDelete(false)}>Cancel</Button>
-          <Button color="error" onClick={handleDelete}>Delete</Button>
+          <Button color="error" onClick={handleDelete}>
+            Delete
+          </Button>
         </DialogActions>
       </Dialog>
     </>

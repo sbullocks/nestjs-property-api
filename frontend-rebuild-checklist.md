@@ -223,14 +223,15 @@ Both backends need CORS enabled for `http://localhost:5173`.
 
 ## Gotchas to Remember
 
-| Mistake | Fix |
-|---|---|
-| CORS error in browser | Add `app.enableCors({ origin: 'http://localhost:5173' })` to backend `main.ts` |
-| `builder.mutation` for a GET | Use `builder.query` for reads, `builder.mutation` for writes |
-| `providesTags` missing on query | Mutations can't invalidate untagged queries — list won't re-fetch |
-| `invalidatesTags` missing on mutation | List won't update after create/update/delete — must match the tag in `providesTags` |
-| Token lost on page refresh | Read `localStorage.getItem('token')` in `authSlice` `initialState` |
-| Forgot `prepareHeaders` | All protected routes return 401 — every request needs `Authorization: Bearer <token>` |
-| Passing `city: ''` to query | Pass `city: city || undefined` — RTK Query omits `undefined` values from the URL |
-| RTK Query middleware missing | Add `.concat(api.middleware)` in store — required for caching and invalidation to work |
-| `<Provider>` missing | `useSelector` and `useDispatch` hooks throw — every component needs Redux context |
+- **CORS error in browser** — Add `app.enableCors({ origin: 'http://localhost:5173' })` to backend `main.ts`. Restart backend after adding.
+- **`builder.mutation` for a GET** — Use `builder.query` for reads (GET), `builder.mutation` for writes (POST/PATCH/DELETE)
+- **`providesTags` missing on query** — Mutations can't invalidate untagged queries. List won't re-fetch after create/update/delete
+- **`invalidatesTags` missing on mutation** — List won't update after writes. Must match the string used in `providesTags`
+- **Role/tenantId lost on page refresh** — Save ALL three (token, role, tenantId) to localStorage in `setCredentials` and restore all three in `initialState`. Saving only the token means role is null after refresh
+- **Forgot `prepareHeaders`** — All protected routes return 401. Every request needs `Authorization: Bearer <token>` attached automatically
+- **Passing `city: ''` to query** — Pass `city: city || undefined`. RTK Query omits keys with `undefined` value so empty strings don't pollute the URL
+- **RTK Query middleware missing** — Add `.concat(api.middleware)` in store setup. Required for caching and invalidation to work
+- **`<Provider>` missing** — `useSelector` and `useDispatch` throw. Every component needs Redux context from the Provider wrapper in `main.tsx`
+- **`IconButton` wrapping `Button`** — Nested interactive elements. Both `onClick` handlers fire — results in skipping confirm dialogs or double actions. Use one or the other, not both nested
+- **Role comparison casing** — Check jwt.io to confirm actual role string in token. Backend enum `'Admin'` vs login sending `'admin'` — must compare against what's actually in the JWT
+- **React 19 + MUI v9** — Causes "Invalid hook call / Cannot read properties of null (reading 'useMemo')" at Provider. Downgrade to React 18 + MUI v5
