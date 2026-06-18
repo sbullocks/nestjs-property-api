@@ -27,6 +27,9 @@ async function bootstrap() {
     }),
   );
 
+  // Handling CORS so Frontend can access rotues! This instruction was provided in the Frontend upskilling. Phase 2 had me test the frontend login page and ran into a CORS error.
+  app.enableCors({ origin: 'http://localhost:5173' });
+
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

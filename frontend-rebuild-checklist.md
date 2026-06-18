@@ -67,41 +67,56 @@ frontend-guide.md — the why is always there.
 
 ## Phase 2 — Auth (Login + Token + Protected Routes)
 
-- [ ] Create `src/features/auth/authApi.ts` — RTK Query login mutation
-  - `builder.mutation` for `POST /auth/login` — mutations are for requests that change data (POST/PATCH/DELETE)
-  - Login body: `{ tenantId: number, role: string }` — matches your backend `LoginDto`
-  - Returns: `{ access_token: string }`
+- [x] Create `src/features/auth/authApi.ts` — RTK Query login mutation
+  - Define 2 interfaces: `LoginRequest { tenantId: number, role: string }` and `LoginResponse { access_token: string }` — TypeScript's way of declaring the expected shape of what goes in and what comes back
+  - `builder.mutation` for `POST /auth/login` — mutations for POST/PATCH/DELETE (anything that changes data). `builder.query` is for GET (reads)
+  - `injectEndpoints` adds the login endpoint INTO the base `api` instance from `store/api.ts` instead of creating a whole new `createApi()`. This means auth and properties share ONE Redux cache and ONE middleware setup — no conflicts
+  - Exports `useLoginMutation` — the hook your LoginPage calls
+  - This is the frontend equivalent of hitting `POST /auth/login` in Swagger to get back a token
 
-- [ ] Create `src/features/auth/authSlice.ts` — Redux slice for auth state
-  - State: `{ token, tenantId, role }`
-  - `setCredentials` action — stores token + user info, saves token to `localStorage`
-  - `logout` action — clears state, removes token from `localStorage`
-  - Read `localStorage.getItem('token')` in `initialState` so token survives page refresh
+- [x] Create `src/features/auth/authSlice.ts` — Redux slice for auth state
+  - Interface `AuthState { token, tenantId, role }` — typed shape of the auth state object
+  - `initialState` reads `localStorage.getItem('token')` so token survives page refresh
+  - `setCredentials` action — updates state with token/tenantId/role + calls `localStorage.setItem()` to persist
+  - `logout` action — sets token/tenantId/role back to null + calls `localStorage.removeItem()`
+  - **Two exports:** `authSlice.actions` (the actions: `setCredentials`, `logout`) AND `default authSlice.reducer` (the reducer the store uses). Actions = what components dispatch. Reducer = how the store processes those dispatches and updates state. They are different things
+  - The slice manages ALL auth state for the frontend — log in and log out are its only two jobs
 
-- [ ] Add `authReducer` to `store.ts` — wire slice into the Redux store
+- [x] Add `authReducer` to `store.ts` — wire slice into the Redux store
+  - `auth: authReducer` in the reducer map
+  - The store doesn't "have access to" actions — it registers the reducer (the state manager). Components dispatch actions TO the store, the store processes them THROUGH the reducer, state updates. Flow: component dispatches → action → reducer → new state
+  - `import type { PayloadAction }` and `import type { RootState }` — must use `import type` for TypeScript type-only imports in decorated files or TypeScript throws
 
-- [ ] Create `src/hooks/useAuth.ts` — `useSelector` hook that returns auth state
-  - Used by any component that needs to know if user is logged in, what their role is
+- [x] Create `src/hooks/useAuth.ts` — `useSelector` hook that returns auth state
+  - `useSelector((state: RootState) => state.auth)` — reads specifically the `auth` slice of global Redux state
+  - Any component that needs to know if user is logged in or what their role is calls `useAuth()`
 
-- [ ] Create `src/pages/LoginPage.tsx` — login form
-  - MUI `TextField` for tenantId (number input), `Select` for role (admin/tenantuser/viewer)
-  - Call `useLoginMutation`, on success dispatch `setCredentials` and navigate to `/properties`
-  - Show error message if login fails
-  - **This is the training-wheels login** — in a real app this would be email + password
+- [x] Create `src/pages/LoginPage.tsx` — login form
+  - `useState` for tenantId/role = LOCAL state (only known to this component, not global Redux)
+  - `useLoginMutation` gives back `[login, { isLoading, error }]`
+  - `handleSubmit` is async because it `await`s the API call for the token. `preventDefault()` stops the browser's default form submit behavior (page reload)
+  - On success: dispatch `setCredentials` (updates global Redux state) then `navigate('/properties')`
+  - **Training-wheels login** — in a real app this would be email + password. Backend looks up user, verifies password, returns token. Never send tenantId/role from the client in production
 
-- [ ] Create `src/components/ProtectedRoute.tsx`
-  - Reads `token` from `useAuth()`
-  - If no token → `<Navigate to="/login" replace />`
-  - If token exists → render children
+- [x] Create `src/components/ProtectedRoute.tsx`
+  - Reads `token` from `useAuth()` — checks ONE thing only: does a token exist?
+  - **Does NOT check role or tenantId** — ProtectedRoute is purely "are you logged in?" Role-based UI (hiding delete for viewers) is Phase 5, separate concern
+  - No token → `<Navigate to="/login" replace />` | token exists → render children
 
-- [ ] Create `src/App.tsx` — route setup
-  - `/login` → `LoginPage`
-  - `/properties` → `<ProtectedRoute><PropertiesPage /></ProtectedRoute>`
-  - `*` (catch-all) → redirect to `/login`
-  - Create a placeholder `PropertiesPage.tsx` for now (just returns a `<div>`)
+- [x] Create `src/App.tsx` — route setup
+  - Replace the default Vite boilerplate entirely
+  - Import `Routes, Route, Navigate` from `react-router-dom`
+  - `/login` → `LoginPage` | `/properties` → `<ProtectedRoute><PropertiesPage /></ProtectedRoute>` | `*` → redirect to `/login`
+  - Placeholder `PropertiesPage.tsx` returning just `<div>Properties</div>` is enough for now
 
-- [ ] Test: login with `{ tenantId: 1, role: 'admin' }` → redirects to `/properties`
-- [ ] Test: refresh the page → stays on `/properties` (token in localStorage persists)
+- [x] Add CORS to backend `main.ts` in BOTH `app` and `app-v2`:
+  - `app.enableCors({ origin: 'http://localhost:5173' })`
+  - **Must restart the backend server after adding** — not hot-reloaded
+  - Without it: browser blocks the request before it even reaches the backend (CORS preflight fails)
+  - Without backend running: `ERR_CONNECTION_REFUSED` — start the backend first
+
+- [x] Test: login with `{ tenantId: 1, role: 'admin' }` → redirects to `/properties` ✅
+- [x] Test: refresh the page → stays on `/properties` (token in localStorage persists) ✅
 - [ ] Test: no token → navigating to `/properties` redirects to `/login`
 - [ ] Test: logout → clears token, redirects to `/login`
 
