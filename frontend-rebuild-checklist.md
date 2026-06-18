@@ -16,11 +16,15 @@ frontend-guide.md — the why is always there.
   - This scaffolds a Vite + React + TypeScript project into `frontend/` as a sibling to `app/` and `app-v2/`
   - Same concept as `nest new` on the backend — generates the boilerplate so you can start building immediately
 
-- [ ] Install all dependencies:
+- [ ] Install all dependencies — **use these pinned versions to avoid compatibility errors:**
   ```bash
-  npm install @mui/material @emotion/react @emotion/styled @mui/icons-material
+  npm install react@18 react-dom@18 @types/react@18 @types/react-dom@18
+  npm install @mui/material@5 @mui/icons-material@5 @emotion/react @emotion/styled
   npm install @reduxjs/toolkit react-redux react-router-dom
   ```
+  - **[troubleshooting] React 19 + MUI v9 = broken.** The default Vite scaffold installs React 19 and `npm install @mui/material` pulls MUI v9. This combination causes "Invalid hook call / Cannot read properties of null (reading 'useMemo')" at the Redux `Provider`. Fix: downgrade to React 18 + MUI v5 as above
+  - `npm install` downloads packages into `node_modules` — nothing starts, nothing runs. One-time setup step
+  - `npm run dev` actually starts the dev server at `http://localhost:5173` — run this every dev session
 
 - [ ] Create folder structure inside `src/`:
   ```
@@ -56,6 +60,8 @@ frontend-guide.md — the why is always there.
   - Without this, every API call from the frontend returns a CORS error in the browser console
 
 - [ ] Test: `npm run dev` → confirm app loads at `http://localhost:5173` with no errors in console
+  - The default Vite template CSS may look slightly different after adding MUI's `CssBaseline` — expected. `CssBaseline` resets browser defaults (removes margins, normalizes fonts). The Vite template CSS assumes browser defaults so they clash slightly. Doesn't matter — you'll replace `App.tsx` entirely in Phase 2
+  - `npm run dev` must be run from inside the `frontend/` folder, same as `npm run start:dev` from inside `app/` or `app-v2/` on the backend
 
 ---
 
